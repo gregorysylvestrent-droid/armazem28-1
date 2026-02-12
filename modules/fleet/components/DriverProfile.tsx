@@ -41,11 +41,11 @@ const DriverProfile: React.FC = () => {
               </div>
             </div>
             <div className="mt-6 flex gap-3 justify-center md:justify-start">
-              <button className="px-6 py-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold flex items-center gap-2">
+              <button className="px-6 py-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all active:scale-95">
                 <MaterialIcon name="edit" className="!text-[18px]" />
                 Editar Perfil
               </button>
-              <button className="px-6 py-2.5 bg-primary text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-primary/20">
+              <button className="px-6 py-2.5 bg-primary text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all active:scale-95">
                 <MaterialIcon name="picture_as_pdf" className="!text-[18px]" />
                 Relatorio PDF
               </button>
@@ -126,13 +126,16 @@ const DriverProfile: React.FC = () => {
           </div>
           <div className="space-y-6">
              <h4 className="font-bold text-lg border-l-4 border-primary pl-4">Documento Digital</h4>
-             <div className="aspect-[1.6/1] bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-3xl flex flex-col items-center justify-center group cursor-pointer hover:border-primary transition-all">
-                <MaterialIcon name="image" className="text-4xl text-slate-300 group-hover:text-primary mb-2" />
+             <button
+                type="button"
+                className="aspect-[1.6/1] bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-3xl flex flex-col items-center justify-center group cursor-pointer hover:border-primary hover:bg-white/60 dark:hover:bg-slate-700/40 transition-all active:scale-[0.99]"
+             >
+                <MaterialIcon name="image" className="text-4xl text-slate-300 group-hover:text-primary mb-2 transition-colors" />
                 <p className="text-[10px] font-bold text-slate-400 group-hover:text-primary uppercase tracking-widest">Visualizar Anexo</p>
-             </div>
+             </button>
              <div className="flex justify-between items-center text-[10px] font-bold text-slate-400">
                 <span>cnh_joao_silva_2024.pdf (2.4 MB)</span>
-                <button className="text-primary hover:underline">Substituir</button>
+                <button className="text-primary hover:text-primary/80 hover:underline transition-colors active:scale-95">Substituir</button>
              </div>
           </div>
         </div>

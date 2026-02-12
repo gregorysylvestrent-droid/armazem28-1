@@ -315,6 +315,7 @@ export const Settings: React.FC<SettingsProps> = ({
                         <option value="buyer">Comprador</option>
                         <option value="admin">Administrador</option>
                         <option value="manager">Gerente</option>
+                        <option value="mechanic_supervisor">Supervisor Mecânico</option>
                         <option value="driver">Motorista</option>
                         <option value="operator">Operador</option>
                         <option value="checker">Conferente</option>

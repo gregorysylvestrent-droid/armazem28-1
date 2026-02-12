@@ -25,18 +25,22 @@ const FiscalCalendar: React.FC = () => {
                    <div>
                       <p className="text-sm font-bold">{action.title}</p>
                       <p className="text-[11px] text-slate-500 font-medium mb-2">{action.detail}</p>
-                      <button className={`text-[10px] font-bold text-${action.color}-700 dark:text-${action.color}-400 underline`}>Resolver Agora</button>
+                      <button
+                        className={`text-[10px] font-bold text-${action.color}-700 dark:text-${action.color}-300 px-3 py-1 rounded-lg bg-${action.color}-100 dark:bg-${action.color}-900/30 border border-${action.color}-200/60 dark:border-${action.color}-900/40 hover:bg-${action.color}-200/60 dark:hover:bg-${action.color}-900/50 transition-all active:scale-95`}
+                      >
+                        Resolver Agora
+                      </button>
                    </div>
                 </div>
               ))}
            </div>
 
            <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800 space-y-2">
-              <button className="w-full flex items-center gap-3 px-3 py-2 text-sm font-bold text-slate-500 hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all">
+              <button className="w-full flex items-center gap-3 px-3 py-2 text-sm font-bold text-slate-500 hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all active:scale-95">
                 <MaterialIcon name="calendar_month" />
                 Calendario Fiscal
               </button>
-              <button className="w-full flex items-center gap-3 px-3 py-2 text-sm font-bold text-slate-500 hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all">
+              <button className="w-full flex items-center gap-3 px-3 py-2 text-sm font-bold text-slate-500 hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all active:scale-95">
                 <MaterialIcon name="description" />
                 IPVA / Licenciamento
               </button>

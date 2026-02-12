@@ -55,7 +55,8 @@ const Tachograph: React.FC = () => {
                <h3 className="font-bold">Controle de Certificados Inmetro</h3>
                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Afericoes e Taxas de Certificacao</p>
             </div>
-            <button className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest">
+            <button className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-all active:scale-95 uppercase tracking-widest flex items-center gap-2">
+               <MaterialIcon name="picture_as_pdf" className="!text-[16px]" />
                Baixar Relatorio Geral
             </button>
          </div>
@@ -95,7 +96,7 @@ const Tachograph: React.FC = () => {
                           </Badge>
                        </td>
                        <td className="px-8 py-4 text-right">
-                          <button title="Opcoes" className="p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button title="Opcoes" className="p-2 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-white dark:hover:bg-slate-700 active:scale-95">
                              <MaterialIcon name="more_vert" className="text-slate-400 hover:text-primary transition-colors cursor-pointer" />
                           </button>
                        </td>

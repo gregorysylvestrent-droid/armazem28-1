@@ -1,10 +1,10 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { WarehouseSelector } from './components/WarehouseSelector';
 import type { MaterialRequest } from './pages/Expedition';
 type RequestStatus = 'aprovacao' | 'separacao' | 'entregue';
-import { Module, InventoryItem, Activity, Movement, Vendor, Vehicle, PurchaseOrder, Quote, ApprovalRecord, User, AppNotification, CyclicBatch, CyclicCount, Warehouse, PurchaseOrderStatus, SystemModule, WorkOrder, Mechanic, WorkshopKPIs, WorkOrderStatus } from './types';
+import { Module, InventoryItem, Activity, Movement, Vendor, Vehicle, PurchaseOrder, Quote, ApprovalRecord, User, AppNotification, CyclicBatch, CyclicCount, Warehouse, PurchaseOrderStatus, SystemModule, WorkOrder, Mechanic, WorkshopKPIs, WorkOrderStatus, WorkOrderAssignmentLog, ServiceItem } from './types';
 import { LoginPage } from './components/LoginPage';
 import { ModuleSelector } from './components/ModuleSelector';
 import { api, AUTH_TOKEN_KEY } from './api-client';
@@ -40,11 +40,13 @@ const Settings = lazy(() => import('./pages/Settings').then((module) => ({ defau
 const WorkshopDashboard = lazy(() => import('./pages/workshop').then((module) => ({ default: module.WorkshopDashboard })));
 const WorkOrderKanban = lazy(() => import('./pages/workshop').then((module) => ({ default: module.WorkOrderKanban })));
 const MechanicsManagement = lazy(() => import('./pages/workshop').then((module) => ({ default: module.MechanicsManagement })));
+const WorkshopPanel = lazy(() => import('./pages/workshop').then((module) => ({ default: module.WorkshopPanel })));
 const VehicleDetailView = lazy(() => import('./pages/workshop').then((module) => ({ default: module.VehicleDetailView })));
 const PreventiveDashboard = lazy(() => import('./pages/workshop').then((module) => ({ default: module.PreventiveDashboard })));
 const MaintenancePlanWizard = lazy(() => import('./pages/workshop').then((module) => ({ default: module.MaintenancePlanWizard })));
 const ScheduleDetail = lazy(() => import('./pages/workshop').then((module) => ({ default: module.ScheduleDetail })));
 const InspectionChecklistEditor = lazy(() => import('./pages/workshop').then((module) => ({ default: module.InspectionChecklistEditor })));
+const MechanicProductivity = lazy(() => import('./pages/workshop').then((module) => ({ default: module.MechanicProductivity })));
 const FleetModule = lazy(() => import('./modules/fleet/FleetModule'));
 
 import type { VehicleDetail, PreventiveKPIs, ActivePlan, MaintenanceAlert, MaintenancePlan, PreventiveSchedule, InspectionTemplate } from './types';
@@ -137,10 +139,11 @@ export const App: React.FC = () => {
 
   // System Module Selection (Warehouse vs Workshop)
   const [currentSystemModule, setCurrentSystemModule] = useState<SystemModule | null>(null);
-  const [workshopActiveModule, setWorkshopActiveModule] = useState<'dashboard' | 'orders' | 'mechanics' | 'preventive' | 'vehicles' | 'plans' | 'schedules' | 'checklists'>('dashboard');
+  const [workshopActiveModule, setWorkshopActiveModule] = useState<'dashboard' | 'panel' | 'orders' | 'mechanics' | 'preventive' | 'vehicles' | 'plans' | 'schedules' | 'checklists' | 'productivity'>('dashboard');
 
   // Workshop States
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+  const [workOrderAssignments, setWorkOrderAssignments] = useState<WorkOrderAssignmentLog[]>([]);
   const [mechanics, setMechanics] = useState<Mechanic[]>([]);
   const [vehicleDetails, setVehicleDetails] = useState<VehicleDetail[]>([]);
   const [activePlans, setActivePlans] = useState<ActivePlan[]>([]);
@@ -175,6 +178,24 @@ export const App: React.FC = () => {
     mechanicsOccupied: 3
   });
 
+  const workshopSupervisors = useMemo(
+    () =>
+      users
+        .filter((u) => u.role === 'mechanic_supervisor' && u.status === 'Ativo')
+        .map((u) => ({ id: u.id, name: u.name })),
+    [users]
+  );
+
+  const defaultWorkshopSupervisor = useMemo(() => {
+    if (user?.role === 'mechanic_supervisor' && user.status === 'Ativo') {
+      return { id: user.id, name: user.name };
+    }
+    if (workshopSupervisors.length === 1) {
+      return workshopSupervisors[0];
+    }
+    return null;
+  }, [user, workshopSupervisors]);
+
   const normalizeVehiclePlate = (value: unknown) => {
     const raw = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!raw) return '';
@@ -183,6 +204,8 @@ export const App: React.FC = () => {
     }
     return raw;
   };
+
+  const normalizePlateKey = (value: unknown) => normalizeVehiclePlate(value).toUpperCase();
 
   const normalizeVehicleStatus = (value: unknown): Vehicle['status'] => {
     const token = String(value || '')
@@ -378,7 +401,7 @@ export const App: React.FC = () => {
     const { data: dbVehicles, error: listError } = await api
       .from('fleet_vehicles')
       .select('placa')
-      .eq('source_module', 'oficina');
+      .eq('source_module', 'gestao_frota');
     if (listError) {
       showNotification('Falha ao carregar frota atual para importar.', 'error');
       return;
@@ -437,7 +460,7 @@ export const App: React.FC = () => {
     const { data: refreshedVehicles } = await api
       .from('fleet_vehicles')
       .select('*')
-      .eq('source_module', 'oficina');
+      .eq('source_module', 'gestao_frota');
     if (refreshedVehicles) {
       setVehicles(refreshedVehicles.map((row: any) => mapVehicleRowToState(row)));
     }
@@ -588,6 +611,77 @@ export const App: React.FC = () => {
 
   const nowIso = () => new Date().toISOString();
 
+  const WORKSHOP_STATUS_KEYS: WorkOrderStatus[] = [
+    'aguardando',
+    'em_execucao',
+    'aguardando_pecas',
+    'finalizada',
+    'cancelada',
+  ];
+
+  const buildStatusTimers = (timers?: WorkOrder['statusTimers']) => {
+    const base: Record<WorkOrderStatus, number> = {
+      aguardando: 0,
+      em_execucao: 0,
+      aguardando_pecas: 0,
+      finalizada: 0,
+      cancelada: 0,
+    };
+    if (!timers) return base;
+    Object.entries(timers).forEach(([key, value]) => {
+      if (Object.prototype.hasOwnProperty.call(base, key) && Number.isFinite(Number(value))) {
+        base[key as WorkOrderStatus] = Number(value);
+      }
+    });
+    return base;
+  };
+
+  const computeElapsedSeconds = (startIso?: string, endIsoValue?: string) => {
+    if (!startIso) return 0;
+    const start = new Date(startIso).getTime();
+    const end = new Date(endIsoValue || nowIso()).getTime();
+    if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return 0;
+    return Math.floor((end - start) / 1000);
+  };
+
+  const computeServiceActualSeconds = (service: ServiceItem, endIsoValue?: string) => {
+    const baseSeconds = service.actualSeconds || 0;
+    if (!service.isTimerActive || !service.startedAt) return baseSeconds;
+    return baseSeconds + computeElapsedSeconds(service.startedAt, endIsoValue);
+  };
+
+  const computeOrderActualHours = (services: ServiceItem[] = [], endIsoValue?: string) => {
+    const totalSeconds = services.reduce((acc, service) => acc + computeServiceActualSeconds(service, endIsoValue), 0);
+    return totalSeconds / 3600;
+  };
+
+  const applyServiceTimersOnStatusChange = (
+    services: ServiceItem[] = [],
+    status: WorkOrderStatus,
+    timestamp: string
+  ) => {
+    return services.map((service) => {
+      const shouldRun = status === 'em_execucao' && Boolean(service.mechanicId);
+      const accumulatedSeconds = computeServiceActualSeconds(service, timestamp);
+      return {
+        ...service,
+        actualSeconds: accumulatedSeconds,
+        startedAt: shouldRun ? timestamp : service.startedAt,
+        isTimerActive: shouldRun,
+      };
+    });
+  };
+
+  const resolveWorkshopWsUrl = () => {
+    if (typeof window === 'undefined') return null;
+    const baseUrl = api.getBaseUrl();
+    const absoluteHttp = baseUrl.startsWith('http')
+      ? baseUrl
+      : new URL(baseUrl, window.location.origin).toString();
+    const wsBase = absoluteHttp.replace(/^http/, 'ws').replace(/\/$/, '');
+    return `${wsBase}/ws`;
+  };
+
   const normalizeUserSession = (rawUser: any): User => {
     const normalizedRole = normalizeUserRole(rawUser?.role);
     const normalizedModules = normalizeUserModules(rawUser?.modules, normalizedRole);
@@ -669,6 +763,141 @@ export const App: React.FC = () => {
     });
   };
 
+  const WORKSHOP_OFFLINE_QUEUE_KEY = 'workshop_offline_queue';
+
+  type WorkshopOfflineOp = {
+    id: string;
+    table: string;
+    method: 'POST' | 'PATCH' | 'DELETE';
+    query?: Record<string, string>;
+    payload?: any;
+    createdAt: string;
+  };
+
+  const readWorkshopQueue = (): WorkshopOfflineOp[] => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem(WORKSHOP_OFFLINE_QUEUE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const writeWorkshopQueue = (entries: WorkshopOfflineOp[]) => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(WORKSHOP_OFFLINE_QUEUE_KEY, JSON.stringify(entries));
+  };
+
+  const enqueueWorkshopOp = (entry: WorkshopOfflineOp) => {
+    const current = readWorkshopQueue();
+    writeWorkshopQueue([...current, entry]);
+  };
+
+  const flushWorkshopQueue = async () => {
+    if (typeof window === 'undefined') return;
+    const pending = readWorkshopQueue();
+    if (pending.length === 0) return;
+
+    const remaining: WorkshopOfflineOp[] = [];
+
+    for (const entry of pending) {
+      try {
+        const baseUrl = api.getBaseUrl();
+        const url = new URL(`${baseUrl}/${entry.table}`, window.location.origin);
+        if (entry.query) {
+          Object.entries(entry.query).forEach(([key, value]) => url.searchParams.append(key, value));
+        }
+
+        const headers: Record<string, string> = { Accept: 'application/json' };
+        const token = api.getAuthToken();
+        if (token) headers.Authorization = `Bearer ${token}`;
+        if (entry.payload) headers['Content-Type'] = 'application/json';
+
+        const response = await fetch(url.toString(), {
+          method: entry.method,
+          headers,
+          body: entry.payload ? JSON.stringify(entry.payload) : undefined,
+        });
+
+        if (!response.ok) {
+          remaining.push(entry);
+        }
+      } catch {
+        remaining.push(entry);
+      }
+    }
+
+    writeWorkshopQueue(remaining);
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleOnline = () => {
+      flushWorkshopQueue();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
+
+  useEffect(() => {
+    if (currentSystemModule !== 'workshop') return;
+    const wsUrl = resolveWorkshopWsUrl();
+    if (!wsUrl) return;
+
+    const token = api.getAuthToken();
+    const finalUrl = token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl;
+    const socket = new WebSocket(finalUrl);
+
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        if (payload?.type !== 'workshop_update') return;
+
+        const items = Array.isArray(payload.data) ? payload.data : payload.data ? [payload.data] : [];
+
+        if (payload.table === 'work_orders') {
+          if (payload.action === 'delete') {
+            const ids = new Set(items.map((item: any) => String(item?.id || '')));
+            setWorkOrders(prev => prev.filter(order => !ids.has(order.id)));
+            return;
+          }
+
+          const normalized = normalizeWorkOrders(items, {
+            warehouseId: activeWarehouse,
+            createdBy: user?.name || 'Sistema',
+          });
+
+          setWorkOrders(prev => {
+            const map = new Map(prev.map(order => [order.id, order]));
+            normalized.forEach((order) => {
+              const current = map.get(order.id);
+              map.set(order.id, current ? { ...current, ...order } : order);
+            });
+            return Array.from(map.values());
+          });
+        }
+
+        if (payload.table === 'work_order_assignments') {
+          const mapped = items.map((row: any) => mapWorkOrderAssignmentRow(row));
+          setWorkOrderAssignments(prev => [...mapped, ...prev]);
+        }
+      } catch (error) {
+        console.warn('Falha ao processar evento WebSocket da oficina', error);
+      }
+    };
+
+    socket.onerror = (err) => {
+      console.warn('WebSocket oficina desconectado', err);
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [currentSystemModule, activeWarehouse, user]);
+
   const createPOStatusHistoryEntry = (
     status: PurchaseOrderStatus,
     description: string,
@@ -717,6 +946,22 @@ export const App: React.FC = () => {
       : [],
     warehouseId: po.warehouse_id || 'ARMZ28'
   }));
+
+  const mapWorkOrderAssignmentRow = (row: any): WorkOrderAssignmentLog => ({
+    id: String(row?.id || generateUuid()),
+    workOrderId: String(row?.work_order_id ?? row?.workOrderId ?? ''),
+    serviceId: String(row?.service_id ?? row?.serviceId ?? ''),
+    previousMechanicId: row?.previous_mechanic_id ?? row?.previousMechanicId ?? undefined,
+    previousMechanicName: row?.previous_mechanic_name ?? row?.previousMechanicName ?? undefined,
+    newMechanicId: row?.new_mechanic_id ?? row?.newMechanicId ?? undefined,
+    newMechanicName: row?.new_mechanic_name ?? row?.newMechanicName ?? undefined,
+    serviceCategory: row?.service_category ?? row?.serviceCategory ?? undefined,
+    serviceDescription: row?.service_description ?? row?.serviceDescription ?? undefined,
+    timestamp: String(row?.timestamp ?? row?.created_at ?? nowIso()),
+    accumulatedSeconds: Number(row?.accumulated_seconds ?? row?.accumulatedSeconds ?? 0),
+    createdBy: row?.created_by ?? row?.createdBy ?? undefined,
+    warehouseId: row?.warehouse_id ?? row?.warehouseId ?? undefined,
+  });
 
   const mapMovements = (rows: any[]): Movement[] => rows.map((m: any) => ({
     id: m.id,
@@ -1233,7 +1478,7 @@ export const App: React.FC = () => {
         const { data: vehData } = await api
           .from('fleet_vehicles')
           .select('*')
-          .eq('source_module', 'armazem');
+          .eq('source_module', 'gestao_frota');
         if (vehData) setVehicles(vehData.map((row: any) => mapVehicleRowToState(row)));
 
         const { data: userData } = await api.from('users').select('*');
@@ -3572,6 +3817,7 @@ export const App: React.FC = () => {
       }
     } else if (module === 'workshop') {
       await loadWorkshopData();
+      await flushWorkshopQueue();
     } else if (module === 'fleet') {
       // Módulo isolado de gestão de frota: não depende dos carregamentos do armazém/oficina.
     }
@@ -3706,6 +3952,14 @@ export const App: React.FC = () => {
         }
       ];
 
+      const normalizedSeedWorkOrders = seedWorkOrders.map((order) => ({
+        ...order,
+        statusTimers: buildStatusTimers(order.statusTimers),
+        lastStatusChange: order.lastStatusChange || order.openedAt,
+        isTimerActive: order.status === 'em_execucao',
+        totalSeconds: order.totalSeconds || 0,
+      }));
+
       // Seed data de detalhes de veículos
       const seedVehicleDetails: VehicleDetail[] = seedVehicles.map(v => ({
         ...v,
@@ -3770,14 +4024,24 @@ export const App: React.FC = () => {
           console.error('Ordens de servico invalidas, usando dados locais', workOrdersData);
           showNotification('Dados de ordens de serviço inválidos. Exibindo dados locais.', 'warning');
         }
-        setWorkOrders(seedWorkOrders);
+        setWorkOrders(normalizedSeedWorkOrders);
+      }
+
+      const { data: assignmentData } = await api
+        .from('work_order_assignments')
+        .select('*')
+        .order('timestamp', { ascending: false });
+      if (assignmentData) {
+        setWorkOrderAssignments(assignmentData.map((row: any) => mapWorkOrderAssignmentRow(row)));
+      } else {
+        setWorkOrderAssignments([]);
       }
 
       // Carregar veículos do banco ou usar seed
       const { data: vehData } = await api
         .from('fleet_vehicles')
         .select('*')
-        .eq('source_module', 'oficina');
+        .eq('source_module', 'gestao_frota');
       if (vehData && vehData.length > 0) {
         setVehicles(vehData.map((row: any) => mapVehicleRowToState(row)));
       } else {
@@ -3804,7 +4068,6 @@ export const App: React.FC = () => {
       setWorkOrders(prev => prev.map(o => o.id === orderId ? { ...o, lockedBy: user.id, lockedAt: new Date().toISOString() } : o));
     }
   };
-
   const handleUnlockWorkOrder = async (orderId: string) => {
     const { error } = await api.from('work_orders').eq('id', orderId).update({
       locked_by: null,
@@ -3816,59 +4079,65 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateWorkOrderStatus = async (orderId: string, newStatus: WorkOrderStatus) => {
-    const now = new Date().toISOString();
+    const now = nowIso();
     const order = workOrders.find(o => o.id === orderId);
     if (!order) return;
 
     if (order.lockedBy && order.lockedBy !== user?.id) {
-      showNotification('Esta OS está sendo editada por outro usuário.', 'error');
+      showNotification('Esta OS esta sendo editada por outro usuario.', 'error');
       return;
     }
 
-    let totalSeconds = order.totalSeconds || 0;
-    
-    // Se estava em execução, soma o tempo decorrido
-    if (order.status === 'em_execucao' && order.lastStatusChange) {
-      const start = new Date(order.lastStatusChange).getTime();
-      const end = new Date(now).getTime();
-      const diffSeconds = Math.floor((end - start) / 1000);
-      totalSeconds += diffSeconds;
-    }
+    const elapsedSeconds = computeElapsedSeconds(order.lastStatusChange || order.openedAt, now);
+    const statusTimers = buildStatusTimers(order.statusTimers);
+    statusTimers[order.status] = (statusTimers[order.status] || 0) + elapsedSeconds;
 
+    const totalSeconds = (order.totalSeconds || 0) + elapsedSeconds;
     const isTimerActive = newStatus === 'em_execucao';
+    const updatedServices = applyServiceTimersOnStatusChange(order.services || [], newStatus, now);
+    const actualHours = computeOrderActualHours(updatedServices, now);
 
-    // Registrar log de tempo (TimeLog)
-    if (order.status !== newStatus) {
-      let duration = 0;
-      if (order.lastStatusChange) {
-        const start = new Date(order.lastStatusChange).getTime();
-        const end = new Date(now).getTime();
-        duration = Math.floor((end - start) / 1000);
-      }
+    const statusLogEntry =
+      order.status !== newStatus
+        ? {
+            id: generateUuid(),
+            work_order_id: orderId,
+            previous_status: order.status,
+            new_status: newStatus,
+            timestamp: now,
+            user_id: user?.id,
+            duration_seconds: elapsedSeconds,
+          }
+        : null;
 
+    if (statusLogEntry) {
       try {
-        await api.from('work_order_logs').insert({
-          id: `LOG-${Date.now()}`,
-          work_order_id: orderId,
-          previous_status: order.status,
-          new_status: newStatus,
-          timestamp: now,
-          user_id: user?.id,
-          duration_seconds: duration
-        });
+        await api.from('work_order_logs').insert(statusLogEntry);
       } catch (logError) {
         console.warn('Falha ao registrar log de status da OS', logError);
+        enqueueWorkshopOp({
+          id: generateUuid(),
+          table: 'work_order_logs',
+          method: 'POST',
+          payload: statusLogEntry,
+          createdAt: now,
+        });
       }
     }
 
-    const { error } = await api.from('work_orders').eq('id', orderId).update({ 
+    const updatePayload = {
       status: newStatus,
       closed_at: newStatus === 'finalizada' ? now : null,
       total_seconds: totalSeconds,
       last_status_change: now,
-      is_timer_active: isTimerActive
-    });
-    
+      is_timer_active: isTimerActive,
+      status_timers: statusTimers,
+      services: updatedServices,
+      actual_hours: actualHours,
+    };
+
+    const { error } = await api.from('work_orders').eq('id', orderId).update(updatePayload);
+
     const applyLocalStatusUpdate = () => {
       setWorkOrders(prev => prev.map(o => o.id === orderId ? {
         ...o,
@@ -3876,7 +4145,10 @@ export const App: React.FC = () => {
         closedAt: newStatus === 'finalizada' ? now : undefined,
         totalSeconds,
         lastStatusChange: now,
-        isTimerActive
+        isTimerActive,
+        statusTimers,
+        services: updatedServices,
+        actualHours,
       } : o));
     };
 
@@ -3885,36 +4157,125 @@ export const App: React.FC = () => {
       showNotification(`Status da OS ${orderId} atualizado`, 'success');
     } else {
       applyLocalStatusUpdate();
+      enqueueWorkshopOp({
+        id: generateUuid(),
+        table: 'work_orders',
+        method: 'PATCH',
+        query: { id: orderId },
+        payload: updatePayload,
+        createdAt: now,
+      });
       showNotification('Status atualizado localmente (falha ao persistir no backend).', 'warning');
     }
   };
 
   const handleAssignMechanic = async (orderId: string, mechanicId: string) => {
     const mechanic = mechanics.find(m => m.id === mechanicId);
-    const { error } = await api.from('work_orders').eq('id', orderId).update({ 
+    const { error } = await api.from('work_orders').eq('id', orderId).update({
       mechanic_id: mechanicId,
       mechanic_name: mechanic?.name
     });
-    
+
     if (!error) {
-      setWorkOrders(prev => prev.map(o => o.id === orderId ? { 
-        ...o, 
-        mechanicId, 
-        mechanicName: mechanic?.name 
+      setWorkOrders(prev => prev.map(o => o.id === orderId ? {
+        ...o,
+        mechanicId,
+        mechanicName: mechanic?.name
       } : o));
-      showNotification(`Mecânico atribuído à OS ${orderId}`, 'success');
+      showNotification(`Mecanico atribuido a OS ${orderId}`, 'success');
     } else {
-      showNotification('Erro ao atribuir mecânico', 'error');
+      setWorkOrders(prev => prev.map(o => o.id === orderId ? {
+        ...o,
+        mechanicId,
+        mechanicName: mechanic?.name
+      } : o));
+      enqueueWorkshopOp({
+        id: generateUuid(),
+        table: 'work_orders',
+        method: 'PATCH',
+        query: { id: orderId },
+        payload: { mechanic_id: mechanicId, mechanic_name: mechanic?.name },
+        createdAt: nowIso(),
+      });
+      showNotification('Mecanico atribuido localmente (falha ao persistir no backend).', 'warning');
     }
   };
 
   const handleCreateWorkOrder = async (workOrder: Omit<WorkOrder, 'id' | 'openedAt' | 'createdBy'>) => {
+    const plateKey = normalizePlateKey(workOrder.vehiclePlate);
+    if (!plateKey) {
+      showNotification('Selecione uma placa válida antes de criar a OS.', 'error');
+      return;
+    }
+    if (!workOrder.workshopUnit) {
+      showNotification('Selecione a oficina responsável antes de criar a OS.', 'error');
+      return;
+    }
+    const hasOpenOrder = workOrders.some(
+      (order) =>
+        normalizePlateKey(order.vehiclePlate) === plateKey &&
+        !['finalizada', 'cancelada'].includes(order.status)
+    );
+    if (hasOpenOrder) {
+      showNotification('Já existe uma OS aberta para esta placa. Finalize ou cancele antes de criar outra.', 'error');
+      return;
+    }
+
     const id = `OS-${Date.now()}`;
-    const openedAt = new Date().toISOString();
-    const createdStatus: WorkOrderStatus = (workOrder.status as WorkOrderStatus) || 'em_execucao';
+    const openedAt = nowIso();
+    const baseServices = Array.isArray(workOrder.services) ? workOrder.services : [];
+    const hasAssignedService = baseServices.some(service => Boolean(service.mechanicId));
+    const createdStatus: WorkOrderStatus = hasAssignedService ? 'em_execucao' : 'aguardando';
     const createdIsTimerActive = createdStatus === 'em_execucao';
-    
-    const { error } = await api.from('work_orders').insert({
+
+    let supervisorId = workOrder.supervisorId;
+    let supervisorName = workOrder.supervisorName;
+    if (supervisorId) {
+      const supervisor = workshopSupervisors.find(item => item.id === supervisorId);
+      if (!supervisor) {
+        showNotification('Selecione um supervisor mecanico valido.', 'error');
+        return;
+      }
+      supervisorName = supervisor.name;
+    } else if (defaultWorkshopSupervisor) {
+      supervisorId = defaultWorkshopSupervisor.id;
+      supervisorName = defaultWorkshopSupervisor.name;
+    }
+
+    const normalizedServices: ServiceItem[] = baseServices.map((service) => {
+      const hasMechanic = Boolean(service.mechanicId);
+      const shouldRun = createdIsTimerActive && hasMechanic;
+      return {
+        ...service,
+        actualSeconds: service.actualSeconds || 0,
+        startedAt: shouldRun ? openedAt : service.startedAt,
+        isTimerActive: shouldRun,
+      };
+    });
+
+    const statusTimers = buildStatusTimers(workOrder.statusTimers);
+    const actualHours = computeOrderActualHours(normalizedServices, openedAt);
+    const cost = workOrder.cost || { labor: 0, parts: 0, thirdParty: 0, total: 0 };
+
+    const assignmentLogs = normalizedServices
+      .filter((service) => Boolean(service.mechanicId))
+      .map((service) => ({
+        id: generateUuid(),
+        work_order_id: id,
+        service_id: service.id,
+        previous_mechanic_id: null,
+        previous_mechanic_name: null,
+        new_mechanic_id: service.mechanicId,
+        new_mechanic_name: service.mechanicName,
+        service_category: service.category,
+        service_description: service.description,
+        timestamp: openedAt,
+        accumulated_seconds: service.actualSeconds || 0,
+        created_by: user?.name || 'Sistema',
+        warehouse_id: activeWarehouse,
+      }));
+
+    const insertPayload = {
       id,
       vehicle_plate: workOrder.vehiclePlate,
       vehicle_model: workOrder.vehicleModel,
@@ -3923,82 +4284,321 @@ export const App: React.FC = () => {
       priority: workOrder.priority,
       mechanic_id: workOrder.mechanicId,
       mechanic_name: workOrder.mechanicName,
+      supervisor_id: supervisorId,
+      supervisor_name: supervisorName,
+      workshop_unit: workOrder.workshopUnit,
       description: workOrder.description,
-      services: workOrder.services,
-      parts: workOrder.parts,
+      services: normalizedServices,
+      parts: workOrder.parts || [],
       opened_at: openedAt,
       estimated_hours: workOrder.estimatedHours,
+      actual_hours: actualHours,
       cost_center: workOrder.costCenter,
-      cost_labor: workOrder.cost.labor,
-      cost_parts: workOrder.cost.parts,
-      cost_third_party: workOrder.cost.thirdParty,
-      cost_total: workOrder.cost.total,
+      cost_labor: cost.labor,
+      cost_parts: cost.parts,
+      cost_third_party: cost.thirdParty,
+      cost_total: cost.total,
       created_by: user?.name || 'Sistema',
       warehouse_id: activeWarehouse,
       total_seconds: 0,
       last_status_change: openedAt,
-      is_timer_active: createdIsTimerActive
-    });
+      is_timer_active: createdIsTimerActive,
+      status_timers: statusTimers,
+    };
+
+    const { error, status: insertStatus } = await api.from('work_orders').insert(insertPayload);
+
+    if (error && insertStatus === 409) {
+      showNotification(error, 'error');
+      return;
+    }
+
+    if (!error && assignmentLogs.length > 0) {
+      try {
+        await api.from('work_order_assignments').insert(assignmentLogs);
+        setWorkOrderAssignments(prev => [...assignmentLogs.map((row) => mapWorkOrderAssignmentRow(row)), ...prev]);
+      } catch (logError) {
+        console.warn('Falha ao registrar atribuicoes de servico', logError);
+        enqueueWorkshopOp({
+          id: generateUuid(),
+          table: 'work_order_assignments',
+          method: 'POST',
+          payload: assignmentLogs,
+          createdAt: openedAt,
+        });
+      }
+    }
+
+    const newOrder: WorkOrder = {
+      ...workOrder,
+      id,
+      openedAt,
+      createdBy: user?.name || 'Sistema',
+      status: createdStatus,
+      totalSeconds: 0,
+      lastStatusChange: openedAt,
+      isTimerActive: createdIsTimerActive,
+      statusTimers,
+      services: normalizedServices,
+      actualHours,
+      supervisorId,
+      supervisorName,
+      workshopUnit: workOrder.workshopUnit,
+      cost,
+    };
 
     if (!error) {
-      const newOrder: WorkOrder = {
-        ...workOrder,
-        id,
-        openedAt,
-        createdBy: user?.name || 'Sistema',
-        status: createdStatus,
-        totalSeconds: 0,
-        lastStatusChange: openedAt,
-        isTimerActive: createdIsTimerActive
-      };
       setWorkOrders(prev => [newOrder, ...prev]);
       showNotification(`OS ${id} criada com sucesso!`, 'success');
       return id;
-    } else {
-      const fallbackOrder: WorkOrder = {
-        ...workOrder,
-        id,
-        openedAt,
-        createdBy: user?.name || 'Sistema',
-        status: createdStatus,
-        totalSeconds: 0,
-        lastStatusChange: openedAt,
-        isTimerActive: createdIsTimerActive
-      };
-      setWorkOrders(prev => [fallbackOrder, ...prev]);
-      showNotification('OS criada localmente (falha ao persistir no backend).', 'warning');
-      return id;
     }
+
+    setWorkOrders(prev => [newOrder, ...prev]);
+    enqueueWorkshopOp({
+      id: generateUuid(),
+      table: 'work_orders',
+      method: 'POST',
+      payload: insertPayload,
+      createdAt: openedAt,
+    });
+    if (assignmentLogs.length > 0) {
+      enqueueWorkshopOp({
+        id: generateUuid(),
+        table: 'work_order_assignments',
+        method: 'POST',
+        payload: assignmentLogs,
+        createdAt: openedAt,
+      });
+    }
+    showNotification('OS criada localmente (falha ao persistir no backend).', 'warning');
+    return id;
   };
 
   const handleUpdateWorkOrder = async (orderId: string, updates: Partial<WorkOrder>) => {
-    const { error } = await api.from('work_orders').eq('id', orderId).update({
+    const order = workOrders.find(o => o.id === orderId);
+    if (!order) return;
+
+    const now = nowIso();
+    if (updates.vehiclePlate) {
+      const nextPlateKey = normalizePlateKey(updates.vehiclePlate);
+      if (!nextPlateKey) {
+        showNotification('Placa inválida para atualização da OS.', 'error');
+        return;
+      }
+      const hasOpenOrder = workOrders.some(
+        (item) =>
+          item.id !== orderId &&
+          normalizePlateKey(item.vehiclePlate) === nextPlateKey &&
+          !['finalizada', 'cancelada'].includes(item.status)
+      );
+      if (hasOpenOrder) {
+        showNotification('Já existe uma OS aberta para esta placa.', 'error');
+        return;
+      }
+    }
+    const incomingServices = Array.isArray(updates.services) ? updates.services : (order.services || []);
+    const previousServices = new Map((order.services || []).map(service => [service.id, service]));
+    const assignmentTriggeredExecution = incomingServices.some((service) => {
+      const previous = previousServices.get(service.id);
+      const prevMechanicId = previous?.mechanicId || '';
+      const nextMechanicId = service.mechanicId || '';
+      return prevMechanicId !== nextMechanicId && Boolean(nextMechanicId);
+    });
+    let effectiveStatus = (updates.status as WorkOrderStatus) || order.status;
+    if (assignmentTriggeredExecution && !['em_execucao', 'finalizada', 'cancelada'].includes(effectiveStatus)) {
+      effectiveStatus = 'em_execucao';
+    }
+
+    let supervisorId = updates.supervisorId ?? order.supervisorId;
+    let supervisorName = updates.supervisorName ?? order.supervisorName;
+    if (supervisorId) {
+      const supervisor = workshopSupervisors.find(item => item.id === supervisorId);
+      if (!supervisor) {
+        showNotification('Selecione um supervisor mecanico valido.', 'error');
+        return;
+      }
+      supervisorName = supervisor.name;
+    }
+
+    const assignmentLogs: any[] = [];
+
+    const normalizedServices: ServiceItem[] = incomingServices.map((service) => {
+      const previous = previousServices.get(service.id);
+      const prevMechanicId = previous?.mechanicId || '';
+      const nextMechanicId = service.mechanicId || '';
+      const prevCategory = previous?.category || '';
+      const nextCategory = service.category || '';
+      const accumulatedSeconds = previous ? computeServiceActualSeconds(previous, now) : (service.actualSeconds || 0);
+      const mechanicChanged = prevMechanicId !== nextMechanicId;
+      const serviceTypeChanged = prevCategory !== nextCategory;
+      const shouldLogAssignment = mechanicChanged || (serviceTypeChanged && Boolean(nextMechanicId));
+
+      if (shouldLogAssignment) {
+        assignmentLogs.push({
+          id: generateUuid(),
+          work_order_id: orderId,
+          service_id: service.id,
+          previous_mechanic_id: prevMechanicId || null,
+          previous_mechanic_name: previous?.mechanicName || null,
+          new_mechanic_id: nextMechanicId || null,
+          new_mechanic_name: service.mechanicName || null,
+          service_category: service.category,
+          service_description: service.description,
+          timestamp: now,
+          accumulated_seconds: accumulatedSeconds,
+          created_by: user?.name || 'Sistema',
+          warehouse_id: activeWarehouse,
+        });
+      }
+
+      const shouldRun = Boolean(nextMechanicId) && effectiveStatus === 'em_execucao';
+      return {
+        ...service,
+        actualSeconds: accumulatedSeconds,
+        startedAt: shouldRun ? now : service.startedAt,
+        isTimerActive: shouldRun,
+      };
+    });
+
+    const actualHours = computeOrderActualHours(normalizedServices, now);
+
+    let statusTimers = order.statusTimers;
+    let totalSeconds = order.totalSeconds;
+    let lastStatusChange = order.lastStatusChange;
+    let isTimerActive = order.isTimerActive;
+    let closedAt = order.closedAt;
+
+    if (effectiveStatus !== order.status) {
+      const elapsedSeconds = computeElapsedSeconds(order.lastStatusChange || order.openedAt, now);
+      const timers = buildStatusTimers(order.statusTimers);
+      timers[order.status] = (timers[order.status] || 0) + elapsedSeconds;
+      statusTimers = timers;
+      totalSeconds = (order.totalSeconds || 0) + elapsedSeconds;
+      lastStatusChange = now;
+      isTimerActive = effectiveStatus === 'em_execucao';
+      closedAt = effectiveStatus === 'finalizada' ? now : order.closedAt;
+
+      const statusLogEntry = {
+        id: generateUuid(),
+        work_order_id: orderId,
+        previous_status: order.status,
+        new_status: effectiveStatus,
+        timestamp: now,
+        user_id: user?.id,
+        duration_seconds: elapsedSeconds,
+      };
+
+      try {
+        await api.from('work_order_logs').insert(statusLogEntry);
+      } catch (logError) {
+        console.warn('Falha ao registrar log de status da OS', logError);
+        enqueueWorkshopOp({
+          id: generateUuid(),
+          table: 'work_order_logs',
+          method: 'POST',
+          payload: statusLogEntry,
+          createdAt: now,
+        });
+      }
+    }
+
+    if (assignmentLogs.length > 0) {
+      try {
+        await api.from('work_order_assignments').insert(assignmentLogs);
+        setWorkOrderAssignments(prev => [...assignmentLogs.map((row) => mapWorkOrderAssignmentRow(row)), ...prev]);
+      } catch (logError) {
+        console.warn('Falha ao registrar atribuicoes de servico', logError);
+        enqueueWorkshopOp({
+          id: generateUuid(),
+          table: 'work_order_assignments',
+          method: 'POST',
+          payload: assignmentLogs,
+          createdAt: now,
+        });
+      }
+    }
+
+    const cost = updates.cost ? { ...order.cost, ...updates.cost } : order.cost;
+
+    const updatePayload: Record<string, any> = {
       vehicle_plate: updates.vehiclePlate,
       vehicle_model: updates.vehicleModel,
-      status: updates.status,
+      status: effectiveStatus,
       type: updates.type,
       priority: updates.priority,
       mechanic_id: updates.mechanicId,
       mechanic_name: updates.mechanicName,
+      supervisor_id: supervisorId,
+      supervisor_name: supervisorName,
+      workshop_unit: updates.workshopUnit,
       description: updates.description,
-      services: updates.services,
+      services: normalizedServices,
       parts: updates.parts,
       estimated_hours: updates.estimatedHours,
+      actual_hours: actualHours,
       cost_center: updates.costCenter,
-      cost_labor: updates.cost?.labor,
-      cost_parts: updates.cost?.parts,
-      cost_third_party: updates.cost?.thirdParty,
-      cost_total: updates.cost?.total,
-    });
+      cost_labor: cost?.labor,
+      cost_parts: cost?.parts,
+      cost_third_party: cost?.thirdParty,
+      cost_total: cost?.total,
+    };
+
+    if (effectiveStatus !== order.status) {
+      updatePayload.closed_at = effectiveStatus === 'finalizada' ? now : null;
+      updatePayload.total_seconds = totalSeconds;
+      updatePayload.last_status_change = lastStatusChange;
+      updatePayload.is_timer_active = isTimerActive;
+      updatePayload.status_timers = statusTimers;
+    }
+
+    const { error } = await api.from('work_orders').eq('id', orderId).update(updatePayload);
 
     if (!error) {
-      setWorkOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
+      setWorkOrders(prev => prev.map(o => o.id === orderId ? {
+        ...o,
+        ...updates,
+        status: effectiveStatus,
+        supervisorId,
+        supervisorName,
+        services: normalizedServices,
+        actualHours,
+        statusTimers: statusTimers ?? o.statusTimers,
+        totalSeconds: totalSeconds ?? o.totalSeconds,
+        lastStatusChange: lastStatusChange ?? o.lastStatusChange,
+        isTimerActive: isTimerActive ?? o.isTimerActive,
+        closedAt: closedAt ?? o.closedAt,
+        cost: cost || o.cost,
+      } : o));
       showNotification(`OS ${orderId} atualizada com sucesso!`, 'success');
-    } else {
-      showNotification('Erro ao atualizar OS', 'error');
+      return;
     }
-  };
 
+    enqueueWorkshopOp({
+      id: generateUuid(),
+      table: 'work_orders',
+      method: 'PATCH',
+      query: { id: orderId },
+      payload: updatePayload,
+      createdAt: now,
+    });
+
+    setWorkOrders(prev => prev.map(o => o.id === orderId ? {
+      ...o,
+      ...updates,
+      status: effectiveStatus,
+      supervisorId,
+      supervisorName,
+      services: normalizedServices,
+      actualHours,
+      statusTimers: statusTimers ?? o.statusTimers,
+      totalSeconds: totalSeconds ?? o.totalSeconds,
+      lastStatusChange: lastStatusChange ?? o.lastStatusChange,
+      isTimerActive: isTimerActive ?? o.isTimerActive,
+      closedAt: closedAt ?? o.closedAt,
+      cost: cost || o.cost,
+    } : o));
+    showNotification('Erro ao atualizar OS', 'error');
+  };
   const handleUpdateMechanic = async (updatedMechanic: Mechanic) => {
     const { error } = await api.from('mechanics').eq('id', updatedMechanic.id).update({
       name: updatedMechanic.name,
@@ -4308,6 +4908,16 @@ export const App: React.FC = () => {
                 Dashboard
               </button>
               <button
+                onClick={() => navigateWorkshopModule('panel')}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                  workshopActiveModule === 'panel'
+                    ? 'bg-blue-500 text-white'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                Painel
+              </button>
+              <button
                 onClick={() => navigateWorkshopModule('orders')}
                 className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
                   workshopActiveModule === 'orders'
@@ -4326,6 +4936,16 @@ export const App: React.FC = () => {
                 }`}
               >
                 Mecânicos
+              </button>
+              <button
+                onClick={() => navigateWorkshopModule('productivity')}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                  workshopActiveModule === 'productivity'
+                    ? 'bg-blue-500 text-white'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                Produtividade
               </button>
               <button
                 onClick={() => navigateWorkshopModule('preventive')}
@@ -4382,6 +5002,12 @@ export const App: React.FC = () => {
                   onNavigateToMaintenance={() => navigateWorkshopModule('preventive')}
                 />
               )}
+              {workshopActiveModule === 'panel' && (
+                <WorkshopPanel
+                  workOrders={workOrders}
+                  vehicles={vehicles}
+                />
+              )}
               {workshopActiveModule === 'orders' && (
                 <WorkshopErrorBoundary
                   resetKey={workshopActiveModule}
@@ -4394,6 +5020,8 @@ export const App: React.FC = () => {
                   <WorkOrderKanban
                     workOrders={workOrders}
                     mechanics={mechanics}
+                    supervisors={workshopSupervisors}
+                    defaultSupervisor={defaultWorkshopSupervisor}
                     vehicles={vehicles}
                     onUpdateStatus={handleUpdateWorkOrderStatus}
                     onUpdateOrder={handleUpdateWorkOrder}
@@ -4415,6 +5043,12 @@ export const App: React.FC = () => {
                   mechanics={mechanics}
                   onUpdateMechanic={handleUpdateMechanic}
                   onCreateMechanic={handleCreateMechanic}
+                />
+              )}
+              {workshopActiveModule === 'productivity' && (
+                <MechanicProductivity
+                  assignments={workOrderAssignments}
+                  mechanics={mechanics}
                 />
               )}
               {workshopActiveModule === 'preventive' && (
@@ -4476,9 +5110,15 @@ export const App: React.FC = () => {
             </div>
           }
         >
-          <FleetModule />
+          <FleetModule onBackToModules={() => setCurrentSystemModule(null)} />
         </Suspense>
       )}
     </div>
   );
 };
+
+
+
+
+
+

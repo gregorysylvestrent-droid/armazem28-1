@@ -16,11 +16,21 @@ const SERVICE_CATEGORY_LABELS: Record<ServiceCategory, string> = {
   outros: 'Outros'
 };
 
+const WORKSHOP_UNITS = [
+  'Oficina Leve',
+  'Oficina Pesada',
+  'Oficina Interior',
+  'Oficina Lancha/Moto',
+  'Oficina Funilaria'
+];
+
 interface NewWorkOrderModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (order: Partial<WorkOrder>) => Promise<void>;
   mechanics?: { id: string; name: string }[];
+  supervisors?: { id: string; name: string }[];
+  defaultSupervisor?: { id: string; name: string } | null;
   vehicles?: Vehicle[];
   initialData?: Partial<WorkOrder>;
 }
@@ -30,15 +40,18 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
   onClose,
   onSave,
   mechanics = [],
+  supervisors = [],
+  defaultSupervisor = null,
   vehicles = [],
   initialData
 }) => {
   const [formData, setFormData] = useState<Partial<WorkOrder>>({
     vehiclePlate: '',
     vehicleModel: '',
-    status: 'em_execucao',
+    status: 'aguardando',
     type: 'corretiva',
     priority: 'normal',
+    workshopUnit: '',
     description: '',
     estimatedHours: 0,
     cost: {
@@ -64,7 +77,13 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
-        setFormData(initialData);
+        setFormData({
+          ...initialData,
+          status: initialData.status || 'aguardando',
+          supervisorId: initialData.supervisorId || initialData.mechanicId,
+          supervisorName: initialData.supervisorName || initialData.mechanicName,
+          workshopUnit: initialData.workshopUnit || '',
+        });
         // Fetch logs if editing
         if (initialData.id) {
           api.from('work_order_logs')
@@ -76,12 +95,16 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
              });
         }
       } else {
+        const supervisorFallback = defaultSupervisor
+          ? { supervisorId: defaultSupervisor.id, supervisorName: defaultSupervisor.name }
+          : { supervisorId: '', supervisorName: '' };
         setFormData({
           vehiclePlate: '',
           vehicleModel: '',
-          status: 'em_execucao',
+          status: 'aguardando',
           type: 'corretiva',
           priority: 'normal',
+          workshopUnit: '',
           description: '',
           estimatedHours: 0,
           cost: {
@@ -91,13 +114,36 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
             total: 0
           },
           services: [],
-          parts: []
+          parts: [],
+          ...supervisorFallback
         });
       }
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, defaultSupervisor]);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [isOpen]);
+
+  const computeServiceActualHours = (service: ServiceItem) => {
+    const baseSeconds = service.actualSeconds ?? 0;
+    if (!service.isTimerActive || !service.startedAt) {
+      return baseSeconds / 3600;
+    }
+    const start = new Date(service.startedAt).getTime();
+    if (Number.isNaN(start)) {
+      return baseSeconds / 3600;
+    }
+    const extraSeconds = Math.max(0, Math.floor((now - start) / 1000));
+    return (baseSeconds + extraSeconds) / 3600;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,7 +252,8 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
       };
 
       mCurrent.estimated += service.estimatedHours || 0;
-      mCurrent.actual += service.actualHours || 0;
+      const serviceActual = computeServiceActualHours(service);
+      mCurrent.actual += serviceActual || 0;
       mCurrent.serviceCount += 1;
       mStats.set(mechanicId, mCurrent);
 
@@ -219,7 +266,8 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
         serviceCount: 0
       };
       cCurrent.estimated += service.estimatedHours || 0;
-      cCurrent.actual += service.actualHours || 0;
+      const categoryActual = computeServiceActualHours(service);
+      cCurrent.actual += categoryActual || 0;
       cCurrent.serviceCount += 1;
       cStats.set(category, cCurrent);
     });
@@ -228,7 +276,7 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
       mechanicStats: Array.from(mStats.values()),
       categoryStats: Array.from(cStats.values())
     };
-  }, [formData.services]);
+  }, [formData.services, now]);
 
   if (!isOpen) return null;
 
@@ -311,6 +359,8 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
                 <option value="urgente">Urgente</option>
                 <option value="revisao">Revisão</option>
                 <option value="garantia">Garantia</option>
+                <option value="tav">TAV</option>
+                <option value="terceiros">Terceiros</option>
               </select>
             </div>
             <div>
@@ -329,6 +379,23 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
                 <option value="urgente">Urgente</option>
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Oficina *
+            </label>
+            <select
+              required
+              value={formData.workshopUnit || ''}
+              onChange={(e) => handleChange('workshopUnit', e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Selecione a oficina...</option>
+              {WORKSHOP_UNITS.map((unit) => (
+                <option key={unit} value={unit}>{unit}</option>
+              ))}
+            </select>
           </div>
 
           {/* Services Section */}
@@ -435,15 +502,9 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-500 mb-1">Tempo Real (h)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={service.actualHours || ''}
-                        onChange={(e) => handleUpdateService(service.id, 'actualHours', Number(e.target.value))}
-                        className="w-full px-2 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white"
-                        placeholder="0.0"
-                      />
+                      <div className="w-full px-2 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-mono">
+                        {computeServiceActualHours(service).toFixed(2)}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -461,16 +522,16 @@ export const NewWorkOrderModal: React.FC<NewWorkOrderModalProps> = ({
               Mecânico Responsável (Supervisor)
             </label>
             <select
-              value={formData.mechanicId || ''}
+              value={formData.supervisorId || ''}
               onChange={(e) => {
-                const mechanic = mechanics.find(m => m.id === e.target.value);
-                handleChange('mechanicId', e.target.value);
-                handleChange('mechanicName', mechanic?.name);
+                const supervisor = supervisors.find(m => m.id === e.target.value);
+                handleChange('supervisorId', e.target.value);
+                handleChange('supervisorName', supervisor?.name);
               }}
               className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">Selecione um mecânico...</option>
-              {mechanics.map(m => (
+              <option value="">Selecione um supervisor...</option>
+              {supervisors.map(m => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>

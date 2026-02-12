@@ -9,12 +9,13 @@ interface LayoutProps {
   onAddClick?: () => void;
   addLabel?: string;
   addIcon?: string;
+  onBackToModules?: () => void;
   children: React.ReactNode;
 }
 
 const flattenMenu = FLEET_MENU_SECTIONS.flatMap((section) => section.items);
 
-const Layout: React.FC<LayoutProps> = ({ currentScreen, setScreen, onAddClick, addLabel, addIcon, children }) => {
+const Layout: React.FC<LayoutProps> = ({ currentScreen, setScreen, onAddClick, addLabel, addIcon, onBackToModules, children }) => {
   const activeItem = flattenMenu.find((item) => item.id === currentScreen);
   const activeSection = FLEET_MENU_SECTIONS.find((section) => section.items.some((item) => item.id === currentScreen));
 
@@ -83,13 +84,34 @@ const Layout: React.FC<LayoutProps> = ({ currentScreen, setScreen, onAddClick, a
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-8 shrink-0">
-          <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.14em]">{activeSection?.title ?? 'Gestao de Frota'}</p>
-            <h2 className="text-lg font-black uppercase tracking-tight">{activeItem?.label ?? 'Painel Executivo'}</h2>
+        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 md:px-8 shrink-0">
+          <div className="flex items-center gap-4">
+            {onBackToModules && (
+              <button
+                onClick={onBackToModules}
+                className="hidden md:flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700 transition-all active:scale-95"
+                title="Voltar para Selecionar Modulo"
+              >
+                <MaterialIcon name="arrow_back" className="!text-[18px]" />
+                Voltar aos Modulos
+              </button>
+            )}
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.14em]">{activeSection?.title ?? 'Gestao de Frota'}</p>
+              <h2 className="text-lg font-black uppercase tracking-tight">{activeItem?.label ?? 'Painel Executivo'}</h2>
+            </div>
           </div>
 
           <div className="flex items-center gap-4">
+            {onBackToModules && (
+              <button
+                onClick={onBackToModules}
+                className="md:hidden p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all active:scale-95"
+                title="Voltar para Selecionar Modulo"
+              >
+                <MaterialIcon name="arrow_back" />
+              </button>
+            )}
             {onAddClick && addLabel && (
               <button
                 onClick={onAddClick}
@@ -106,7 +128,9 @@ const Layout: React.FC<LayoutProps> = ({ currentScreen, setScreen, onAddClick, a
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 bg-background-light dark:bg-background-dark/50">{children}</div>
+        <div className="flex-1 overflow-y-auto p-6 md:p-8 2xl:p-10 bg-background-light dark:bg-background-dark/50">
+          <div className="w-full max-w-none">{children}</div>
+        </div>
       </main>
     </div>
   );

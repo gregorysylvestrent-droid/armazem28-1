@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS fleet_vehicles (
   gestao_multa TEXT DEFAULT 'NAO',
   setor_veiculo TEXT,
   responsavel_veiculo TEXT,
+  source_module TEXT NOT NULL DEFAULT 'gestao_frota' CHECK (source_module IN ('gestao_frota', 'oficina')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -188,7 +189,7 @@ CREATE TABLE IF NOT EXISTS fleet_people (
 
 CREATE TABLE IF NOT EXISTS fleet_fines (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  placa VARCHAR(20),
+  placa VARCHAR(20) REFERENCES fleet_vehicles(placa) ON UPDATE CASCADE ON DELETE SET NULL,
   ain TEXT,
   data TIMESTAMPTZ,
   hora TEXT,
@@ -203,7 +204,7 @@ CREATE TABLE IF NOT EXISTS fleet_fines (
 
 CREATE TABLE IF NOT EXISTS fleet_tachograph_checks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  placa VARCHAR(20),
+  placa VARCHAR(20) REFERENCES fleet_vehicles(placa) ON UPDATE CASCADE ON DELETE SET NULL,
   num_certificado TEXT,
   dta_afericao TIMESTAMPTZ,
   dta_vencimento TIMESTAMPTZ,
@@ -225,7 +226,7 @@ CREATE TABLE IF NOT EXISTS fleet_rntrc_records (
 
 CREATE TABLE IF NOT EXISTS fleet_fiscal_obligations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  placa VARCHAR(20),
+  placa VARCHAR(20) REFERENCES fleet_vehicles(placa) ON UPDATE CASCADE ON DELETE SET NULL,
   tipo TEXT,
   exercicio INTEGER,
   vencimento TIMESTAMPTZ,
@@ -521,6 +522,134 @@ ALTER TABLE vendors ALTER COLUMN razao_social SET NOT NULL;
 
 ALTER TABLE inventory ALTER COLUMN name TYPE VARCHAR(255) USING LEFT(COALESCE(name, ''), 255);
 
+-- Compatibilidade e integridade do cadastro central de frota
+ALTER TABLE fleet_vehicles ADD COLUMN IF NOT EXISTS source_module TEXT;
+
+WITH ranked AS (
+  SELECT
+    ctid,
+    UPPER(BTRIM(COALESCE(placa, ''))) AS normalized_placa,
+    ROW_NUMBER() OVER (
+      PARTITION BY UPPER(BTRIM(COALESCE(placa, '')))
+      ORDER BY created_at DESC NULLS LAST, ctid DESC
+    ) AS rn
+  FROM fleet_vehicles
+)
+DELETE FROM fleet_vehicles target
+USING ranked
+WHERE target.ctid = ranked.ctid
+  AND (ranked.normalized_placa = '' OR ranked.rn > 1);
+
+ALTER TABLE fleet_vehicles
+  ALTER COLUMN placa TYPE VARCHAR(20)
+  USING LEFT(UPPER(BTRIM(COALESCE(placa, ''))), 20);
+
+ALTER TABLE fleet_vehicles
+  ALTER COLUMN source_module TYPE TEXT
+  USING CASE
+    WHEN lower(BTRIM(COALESCE(source_module, ''))) IN ('oficina', 'workshop') THEN 'oficina'
+    ELSE 'gestao_frota'
+  END;
+
+UPDATE fleet_vehicles
+SET source_module = 'gestao_frota'
+WHERE source_module IS NULL OR BTRIM(source_module) = '';
+
+ALTER TABLE fleet_vehicles ALTER COLUMN source_module SET DEFAULT 'gestao_frota';
+ALTER TABLE fleet_vehicles ALTER COLUMN source_module SET NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'fleet_vehicles'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%source_module%'
+      AND pg_get_constraintdef(oid) ILIKE '%gestao_frota%'
+      AND pg_get_constraintdef(oid) ILIKE '%oficina%'
+  ) THEN
+    ALTER TABLE fleet_vehicles
+      ADD CONSTRAINT chk_fleet_vehicles_source_module
+      CHECK (source_module IN ('gestao_frota', 'oficina'));
+  END IF;
+END $$;
+
+UPDATE fleet_fines
+SET placa = NULLIF(LEFT(UPPER(BTRIM(COALESCE(placa, ''))), 20), '');
+
+UPDATE fleet_tachograph_checks
+SET placa = NULLIF(LEFT(UPPER(BTRIM(COALESCE(placa, ''))), 20), '');
+
+UPDATE fleet_fiscal_obligations
+SET placa = NULLIF(LEFT(UPPER(BTRIM(COALESCE(placa, ''))), 20), '');
+
+UPDATE fleet_fines child
+SET placa = NULL
+WHERE placa IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM fleet_vehicles parent WHERE parent.placa = child.placa);
+
+UPDATE fleet_tachograph_checks child
+SET placa = NULL
+WHERE placa IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM fleet_vehicles parent WHERE parent.placa = child.placa);
+
+UPDATE fleet_fiscal_obligations child
+SET placa = NULL
+WHERE placa IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM fleet_vehicles parent WHERE parent.placa = child.placa);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'fleet_fines'::regclass
+      AND contype = 'f'
+      AND pg_get_constraintdef(oid) ILIKE 'FOREIGN KEY (placa) REFERENCES fleet_vehicles(placa)%'
+  ) THEN
+    ALTER TABLE fleet_fines
+      ADD CONSTRAINT fk_fleet_fines_placa
+      FOREIGN KEY (placa) REFERENCES fleet_vehicles(placa)
+      ON UPDATE CASCADE
+      ON DELETE SET NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'fleet_tachograph_checks'::regclass
+      AND contype = 'f'
+      AND pg_get_constraintdef(oid) ILIKE 'FOREIGN KEY (placa) REFERENCES fleet_vehicles(placa)%'
+  ) THEN
+    ALTER TABLE fleet_tachograph_checks
+      ADD CONSTRAINT fk_fleet_tachograph_checks_placa
+      FOREIGN KEY (placa) REFERENCES fleet_vehicles(placa)
+      ON UPDATE CASCADE
+      ON DELETE SET NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'fleet_fiscal_obligations'::regclass
+      AND contype = 'f'
+      AND pg_get_constraintdef(oid) ILIKE 'FOREIGN KEY (placa) REFERENCES fleet_vehicles(placa)%'
+  ) THEN
+    ALTER TABLE fleet_fiscal_obligations
+      ADD CONSTRAINT fk_fleet_fiscal_obligations_placa
+      FOREIGN KEY (placa) REFERENCES fleet_vehicles(placa)
+      ON UPDATE CASCADE
+      ON DELETE SET NULL;
+  END IF;
+END $$;
+
 CREATE SEQUENCE IF NOT EXISTS vendors_id_fornecedor_seq;
 ALTER TABLE vendors ALTER COLUMN id_fornecedor SET DEFAULT nextval('vendors_id_fornecedor_seq');
 
@@ -555,6 +684,7 @@ CREATE INDEX IF NOT EXISTS idx_vendors_cnpj_digits ON vendors ((regexp_replace(C
 CREATE INDEX IF NOT EXISTS idx_vendors_razao_social_lower ON vendors ((lower(COALESCE(razao_social, name, ''))));
 CREATE INDEX IF NOT EXISTS idx_vendors_razao_social_norm ON vendors ((lower(regexp_replace(btrim(COALESCE(razao_social, name, '')), '\s+', ' ', 'g'))));
 CREATE INDEX IF NOT EXISTS idx_fleet_vehicles_centro_custo ON fleet_vehicles(cod_centro_custo);
+CREATE INDEX IF NOT EXISTS idx_fleet_vehicles_source_module_placa ON fleet_vehicles(source_module, placa);
 CREATE INDEX IF NOT EXISTS idx_fleet_people_centro_custo ON fleet_people(cod_centro_custo);
 CREATE INDEX IF NOT EXISTS idx_fleet_fines_placa_data ON fleet_fines(placa, data DESC);
 CREATE INDEX IF NOT EXISTS idx_fleet_tacho_placa_venc ON fleet_tachograph_checks(placa, dta_vencimento DESC);
@@ -724,6 +854,177 @@ VALUES
   ('CC-OPS', 'Operacoes', 'MATIAS', 300000.00, 'Ativo'),
   ('CC-MAN', 'Manutencao', 'Administrador', 150000.00, 'Ativo')
 ON CONFLICT (code) DO NOTHING;
+
+-- ============================
+-- Oficinas: ordens de servico
+-- ============================
+CREATE TABLE IF NOT EXISTS mechanics (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  specialty TEXT,
+  shift TEXT DEFAULT 'manha',
+  status TEXT DEFAULT 'disponivel',
+  current_work_orders JSONB NOT NULL DEFAULT '[]'::JSONB,
+  orders_completed INTEGER DEFAULT 0,
+  avg_hours_per_order DECIMAL(5, 2) DEFAULT 0,
+  on_time_rate DECIMAL(5, 2) DEFAULT 100,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS work_orders (
+  id TEXT PRIMARY KEY,
+  vehicle_plate VARCHAR(20) REFERENCES vehicles(plate),
+  vehicle_model TEXT,
+  status TEXT DEFAULT 'aguardando',
+  type TEXT DEFAULT 'corretiva',
+  priority TEXT DEFAULT 'normal',
+  mechanic_id TEXT REFERENCES mechanics(id),
+  mechanic_name TEXT,
+  supervisor_id TEXT,
+  supervisor_name TEXT,
+  workshop_unit TEXT,
+  description TEXT NOT NULL,
+  services JSONB NOT NULL DEFAULT '[]'::JSONB,
+  parts JSONB NOT NULL DEFAULT '[]'::JSONB,
+  opened_at TIMESTAMPTZ DEFAULT NOW(),
+  closed_at TIMESTAMPTZ,
+  estimated_hours INTEGER DEFAULT 0,
+  actual_hours DECIMAL(5, 2),
+  status_timers JSONB NOT NULL DEFAULT '{}'::JSONB,
+  total_seconds INTEGER DEFAULT 0,
+  last_status_change TIMESTAMPTZ,
+  is_timer_active BOOLEAN DEFAULT false,
+  cost_center TEXT,
+  cost_labor DECIMAL(10, 2) DEFAULT 0,
+  cost_parts DECIMAL(10, 2) DEFAULT 0,
+  cost_third_party DECIMAL(10, 2) DEFAULT 0,
+  cost_total DECIMAL(10, 2) DEFAULT 0,
+  created_by TEXT,
+  warehouse_id VARCHAR(50) REFERENCES warehouses(id),
+  locked_by TEXT,
+  locked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE work_orders
+  ADD COLUMN IF NOT EXISTS supervisor_id TEXT,
+  ADD COLUMN IF NOT EXISTS supervisor_name TEXT,
+  ADD COLUMN IF NOT EXISTS workshop_unit TEXT,
+  ADD COLUMN IF NOT EXISTS status_timers JSONB DEFAULT '{}'::JSONB,
+  ADD COLUMN IF NOT EXISTS total_seconds INTEGER DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS last_status_change TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS is_timer_active BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS locked_by TEXT,
+  ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS work_order_logs (
+  id TEXT PRIMARY KEY,
+  work_order_id TEXT REFERENCES work_orders(id),
+  previous_status TEXT,
+  new_status TEXT,
+  timestamp TIMESTAMPTZ DEFAULT NOW(),
+  user_id TEXT,
+  duration_seconds INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS work_order_assignments (
+  id TEXT PRIMARY KEY,
+  work_order_id TEXT REFERENCES work_orders(id),
+  service_id TEXT,
+  previous_mechanic_id TEXT,
+  previous_mechanic_name TEXT,
+  new_mechanic_id TEXT,
+  new_mechanic_name TEXT,
+  service_category TEXT,
+  service_description TEXT,
+  timestamp TIMESTAMPTZ DEFAULT NOW(),
+  accumulated_seconds INTEGER DEFAULT 0,
+  created_by TEXT,
+  warehouse_id VARCHAR(50) REFERENCES warehouses(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_work_orders_status_timers_gin ON work_orders USING GIN (status_timers);
+CREATE INDEX IF NOT EXISTS idx_work_order_logs_order ON work_order_logs(work_order_id);
+CREATE INDEX IF NOT EXISTS idx_work_order_logs_timestamp ON work_order_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_work_order_assignments_order ON work_order_assignments(work_order_id);
+CREATE INDEX IF NOT EXISTS idx_work_order_assignments_mechanic ON work_order_assignments(new_mechanic_id);
+CREATE INDEX IF NOT EXISTS idx_work_order_assignments_timestamp ON work_order_assignments(timestamp DESC);
+
+CREATE OR REPLACE FUNCTION work_order_apply_status_timer()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  elapsed_seconds INTEGER;
+  previous_status TEXT;
+  previous_timers JSONB;
+  previous_value INTEGER;
+  services_payload JSONB;
+  has_mechanic BOOLEAN;
+BEGIN
+  services_payload := CASE
+    WHEN NEW.services IS NULL THEN '[]'::jsonb
+    WHEN jsonb_typeof(NEW.services) = 'array' THEN NEW.services
+    ELSE '[]'::jsonb
+  END;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(services_payload) AS item
+    WHERE COALESCE(NULLIF(item->>'mechanicId', ''), NULLIF(item->>'mechanic_id', '')) IS NOT NULL
+  ) INTO has_mechanic;
+
+  IF TG_OP = 'INSERT' THEN
+    NEW.status := COALESCE(NULLIF(NEW.status, ''), 'aguardando');
+    IF NEW.status = 'aguardando' AND has_mechanic THEN
+      NEW.status := 'em_execucao';
+    END IF;
+    NEW.status_timers := COALESCE(NEW.status_timers, '{}'::JSONB);
+    NEW.last_status_change := COALESCE(NEW.last_status_change, NEW.opened_at, NOW());
+    NEW.is_timer_active := (NEW.status = 'em_execucao');
+    RETURN NEW;
+  END IF;
+
+  NEW.status := COALESCE(NULLIF(NEW.status, ''), OLD.status, 'aguardando');
+  IF NEW.status = 'aguardando' AND has_mechanic THEN
+    NEW.status := 'em_execucao';
+  END IF;
+
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    previous_status := OLD.status;
+    elapsed_seconds := EXTRACT(EPOCH FROM (NOW() - COALESCE(OLD.last_status_change, OLD.opened_at, NOW())))::INT;
+    IF elapsed_seconds < 0 THEN
+      elapsed_seconds := 0;
+    END IF;
+
+    previous_timers := COALESCE(OLD.status_timers, '{}'::JSONB);
+    previous_value := COALESCE((previous_timers ->> previous_status)::INT, 0);
+    NEW.status_timers := jsonb_set(previous_timers, ARRAY[previous_status], to_jsonb(previous_value + elapsed_seconds), true);
+    NEW.total_seconds := COALESCE(OLD.total_seconds, 0) + elapsed_seconds;
+    NEW.last_status_change := NOW();
+    NEW.is_timer_active := (NEW.status = 'em_execucao');
+
+    IF NEW.status = 'finalizada' THEN
+      NEW.closed_at := COALESCE(NEW.closed_at, NOW());
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_work_orders_status_timer ON work_orders;
+CREATE TRIGGER trg_work_orders_status_timer
+BEFORE INSERT OR UPDATE ON work_orders
+FOR EACH ROW
+EXECUTE FUNCTION work_order_apply_status_timer();
+
+DROP TRIGGER IF EXISTS trg_work_orders_status_log ON work_orders;
+DROP FUNCTION IF EXISTS work_order_log_status_change();
 
 \echo 'Migration concluida com sucesso.'
 \echo 'Teste rapido: SELECT count(*) FROM users;'

@@ -1,4 +1,4 @@
-﻿
+
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { MaterialIcon, Badge } from '../constants';
@@ -87,7 +87,7 @@ const Reports: React.FC = () => {
                <p className="text-sm text-slate-600 dark:text-slate-400">Identificamos uma economia potencial de 12% na rota Sul.</p>
             </div>
          </div>
-         <button className="px-8 py-3 bg-primary text-white rounded-2xl font-bold shadow-xl shadow-primary/20 hover:scale-105 transition-transform">
+         <button className="px-8 py-3 bg-primary text-white rounded-2xl font-bold shadow-xl shadow-primary/20 hover:shadow-2xl hover:shadow-primary/30 hover:-translate-y-0.5 transition-all active:scale-95">
             Ver Insights Detalhados
          </button>
       </div>
@@ -96,4 +96,5 @@ const Reports: React.FC = () => {
 };
 
 export default Reports;
+
 

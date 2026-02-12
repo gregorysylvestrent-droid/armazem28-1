@@ -1,105 +1,5 @@
 [
   {
-    "id": "V-00001",
-    "name": "Fornecedor 1",
-    "contact": "Contato 1",
-    "email": "fornecedor1@example.com",
-    "cnpj": "10000000000001",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-06-10T03:28:28.748Z"
-  },
-  {
-    "id": "V-00002",
-    "name": "Fornecedor 2",
-    "contact": "Contato 2",
-    "email": "fornecedor2@example.com",
-    "cnpj": "10000000000002",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-05-11T03:28:28.748Z"
-  },
-  {
-    "id": "V-00003",
-    "name": "Fornecedor 3",
-    "contact": "Contato 3",
-    "email": "fornecedor3@example.com",
-    "cnpj": "10000000000003",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-08-25T03:28:28.748Z"
-  },
-  {
-    "id": "V-00004",
-    "name": "Fornecedor 4",
-    "contact": "Contato 4",
-    "email": "fornecedor4@example.com",
-    "cnpj": "10000000000004",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-07-15T03:28:28.748Z"
-  },
-  {
-    "id": "V-00005",
-    "name": "Fornecedor 5",
-    "contact": "Contato 5",
-    "email": "fornecedor5@example.com",
-    "cnpj": "10000000000005",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-08-17T03:28:28.748Z"
-  },
-  {
-    "id": "V-00006",
-    "name": "Fornecedor 6",
-    "contact": "Contato 6",
-    "email": "fornecedor6@example.com",
-    "cnpj": "10000000000006",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-09-23T03:28:28.748Z"
-  },
-  {
-    "id": "V-00007",
-    "name": "Fornecedor 7",
-    "contact": "Contato 7",
-    "email": "fornecedor7@example.com",
-    "cnpj": "10000000000007",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-08-21T03:28:28.748Z"
-  },
-  {
-    "id": "V-00008",
-    "name": "Fornecedor 8",
-    "contact": "Contato 8",
-    "email": "fornecedor8@example.com",
-    "cnpj": "10000000000008",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-08-26T03:28:28.748Z"
-  },
-  {
-    "id": "V-00009",
-    "name": "Fornecedor 9",
-    "contact": "Contato 9",
-    "email": "fornecedor9@example.com",
-    "cnpj": "10000000000009",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-09-24T03:28:28.748Z"
-  },
-  {
-    "id": "V-00010",
-    "name": "Fornecedor 10",
-    "contact": "Contato 10",
-    "email": "fornecedor10@example.com",
-    "cnpj": "10000000000010",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-09-17T03:28:28.748Z"
-  },
-  {
     "id": "V-00011",
     "name": "Fornecedor 11",
     "contact": "Contato 11",
@@ -108,116 +8,6 @@
     "category": "Ferramentas",
     "status": "Ativo",
     "created_at": "2025-01-19T03:28:28.748Z"
-  },
-  {
-    "id": "V-00012",
-    "name": "Fornecedor 12",
-    "contact": "Contato 12",
-    "email": "fornecedor12@example.com",
-    "cnpj": "10000000000012",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-08-09T03:28:28.748Z"
-  },
-  {
-    "id": "V-00013",
-    "name": "Fornecedor 13",
-    "contact": "Contato 13",
-    "email": "fornecedor13@example.com",
-    "cnpj": "10000000000013",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-08-07T03:28:28.748Z"
-  },
-  {
-    "id": "V-00014",
-    "name": "Fornecedor 14",
-    "contact": "Contato 14",
-    "email": "fornecedor14@example.com",
-    "cnpj": "10000000000014",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-10-17T03:28:28.748Z"
-  },
-  {
-    "id": "V-00015",
-    "name": "Fornecedor 15",
-    "contact": "Contato 15",
-    "email": "fornecedor15@example.com",
-    "cnpj": "10000000000015",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-04-17T03:28:28.748Z"
-  },
-  {
-    "id": "V-00016",
-    "name": "Fornecedor 16",
-    "contact": "Contato 16",
-    "email": "fornecedor16@example.com",
-    "cnpj": "10000000000016",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-04-14T03:28:28.748Z"
-  },
-  {
-    "id": "V-00017",
-    "name": "Fornecedor 17",
-    "contact": "Contato 17",
-    "email": "fornecedor17@example.com",
-    "cnpj": "10000000000017",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-10-31T03:28:28.748Z"
-  },
-  {
-    "id": "V-00018",
-    "name": "Fornecedor 18",
-    "contact": "Contato 18",
-    "email": "fornecedor18@example.com",
-    "cnpj": "10000000000018",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-04-08T03:28:28.748Z"
-  },
-  {
-    "id": "V-00019",
-    "name": "Fornecedor 19",
-    "contact": "Contato 19",
-    "email": "fornecedor19@example.com",
-    "cnpj": "10000000000019",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-11-03T03:28:28.748Z"
-  },
-  {
-    "id": "V-00020",
-    "name": "Fornecedor 20",
-    "contact": "Contato 20",
-    "email": "fornecedor20@example.com",
-    "cnpj": "10000000000020",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-12-07T03:28:28.748Z"
-  },
-  {
-    "id": "V-00021",
-    "name": "Fornecedor 21",
-    "contact": "Contato 21",
-    "email": "fornecedor21@example.com",
-    "cnpj": "10000000000021",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-09-30T03:28:28.748Z"
-  },
-  {
-    "id": "V-00022",
-    "name": "Fornecedor 22",
-    "contact": "Contato 22",
-    "email": "fornecedor22@example.com",
-    "cnpj": "10000000000022",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-04-11T03:28:28.748Z"
   },
   {
     "id": "V-00023",
@@ -230,56 +20,6 @@
     "created_at": "2025-01-31T03:28:28.748Z"
   },
   {
-    "id": "V-00024",
-    "name": "Fornecedor 24",
-    "contact": "Contato 24",
-    "email": "fornecedor24@example.com",
-    "cnpj": "10000000000024",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-07-01T03:28:28.748Z"
-  },
-  {
-    "id": "V-00025",
-    "name": "Fornecedor 25",
-    "contact": "Contato 25",
-    "email": "fornecedor25@example.com",
-    "cnpj": "10000000000025",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-09-01T03:28:28.748Z"
-  },
-  {
-    "id": "V-00026",
-    "name": "Fornecedor 26",
-    "contact": "Contato 26",
-    "email": "fornecedor26@example.com",
-    "cnpj": "10000000000026",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-03-07T03:28:28.748Z"
-  },
-  {
-    "id": "V-00027",
-    "name": "Fornecedor 27",
-    "contact": "Contato 27",
-    "email": "fornecedor27@example.com",
-    "cnpj": "10000000000027",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-12-23T03:28:28.748Z"
-  },
-  {
-    "id": "V-00028",
-    "name": "Fornecedor 28",
-    "contact": "Contato 28",
-    "email": "fornecedor28@example.com",
-    "cnpj": "10000000000028",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-12-25T03:28:28.748Z"
-  },
-  {
     "id": "V-00029",
     "name": "Fornecedor 29",
     "contact": "Contato 29",
@@ -290,66 +30,6 @@
     "created_at": "2025-01-20T03:28:28.748Z"
   },
   {
-    "id": "V-00030",
-    "name": "Fornecedor 30",
-    "contact": "Contato 30",
-    "email": "fornecedor30@example.com",
-    "cnpj": "10000000000030",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-11-15T03:28:28.748Z"
-  },
-  {
-    "id": "V-00031",
-    "name": "Fornecedor 31",
-    "contact": "Contato 31",
-    "email": "fornecedor31@example.com",
-    "cnpj": "10000000000031",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-11-16T03:28:28.748Z"
-  },
-  {
-    "id": "V-00032",
-    "name": "Fornecedor 32",
-    "contact": "Contato 32",
-    "email": "fornecedor32@example.com",
-    "cnpj": "10000000000032",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-08-25T03:28:28.748Z"
-  },
-  {
-    "id": "V-00033",
-    "name": "Fornecedor 33",
-    "contact": "Contato 33",
-    "email": "fornecedor33@example.com",
-    "cnpj": "10000000000033",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-07-23T03:28:28.748Z"
-  },
-  {
-    "id": "V-00034",
-    "name": "Fornecedor 34",
-    "contact": "Contato 34",
-    "email": "fornecedor34@example.com",
-    "cnpj": "10000000000034",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-09-19T03:28:28.748Z"
-  },
-  {
-    "id": "V-00035",
-    "name": "Fornecedor 35",
-    "contact": "Contato 35",
-    "email": "fornecedor35@example.com",
-    "cnpj": "10000000000035",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2026-01-29T03:28:28.748Z"
-  },
-  {
     "id": "V-00036",
     "name": "Fornecedor 36",
     "contact": "Contato 36",
@@ -358,146 +38,6 @@
     "category": "Pecas",
     "status": "Ativo",
     "created_at": "2025-01-10T03:28:28.748Z"
-  },
-  {
-    "id": "V-00037",
-    "name": "Fornecedor 37",
-    "contact": "Contato 37",
-    "email": "fornecedor37@example.com",
-    "cnpj": "10000000000037",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-10-30T03:28:28.748Z"
-  },
-  {
-    "id": "V-00038",
-    "name": "Fornecedor 38",
-    "contact": "Contato 38",
-    "email": "fornecedor38@example.com",
-    "cnpj": "10000000000038",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-07-03T03:28:28.748Z"
-  },
-  {
-    "id": "V-00039",
-    "name": "Fornecedor 39",
-    "contact": "Contato 39",
-    "email": "fornecedor39@example.com",
-    "cnpj": "10000000000039",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-12-23T03:28:28.748Z"
-  },
-  {
-    "id": "V-00040",
-    "name": "Fornecedor 40",
-    "contact": "Contato 40",
-    "email": "fornecedor40@example.com",
-    "cnpj": "10000000000040",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-07-20T03:28:28.748Z"
-  },
-  {
-    "id": "V-00041",
-    "name": "Fornecedor 41",
-    "contact": "Contato 41",
-    "email": "fornecedor41@example.com",
-    "cnpj": "10000000000041",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-05-06T03:28:28.748Z"
-  },
-  {
-    "id": "V-00042",
-    "name": "Fornecedor 42",
-    "contact": "Contato 42",
-    "email": "fornecedor42@example.com",
-    "cnpj": "10000000000042",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-07-13T03:28:28.748Z"
-  },
-  {
-    "id": "V-00043",
-    "name": "Fornecedor 43",
-    "contact": "Contato 43",
-    "email": "fornecedor43@example.com",
-    "cnpj": "10000000000043",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-02-17T03:28:28.748Z"
-  },
-  {
-    "id": "V-00044",
-    "name": "Fornecedor 44",
-    "contact": "Contato 44",
-    "email": "fornecedor44@example.com",
-    "cnpj": "10000000000044",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-09-29T03:28:28.748Z"
-  },
-  {
-    "id": "V-00045",
-    "name": "Fornecedor 45",
-    "contact": "Contato 45",
-    "email": "fornecedor45@example.com",
-    "cnpj": "10000000000045",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-06-30T03:28:28.748Z"
-  },
-  {
-    "id": "V-00046",
-    "name": "Fornecedor 46",
-    "contact": "Contato 46",
-    "email": "fornecedor46@example.com",
-    "cnpj": "10000000000046",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-10-12T03:28:28.748Z"
-  },
-  {
-    "id": "V-00047",
-    "name": "Fornecedor 47",
-    "contact": "Contato 47",
-    "email": "fornecedor47@example.com",
-    "cnpj": "10000000000047",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-10-31T03:28:28.748Z"
-  },
-  {
-    "id": "V-00048",
-    "name": "Fornecedor 48",
-    "contact": "Contato 48",
-    "email": "fornecedor48@example.com",
-    "cnpj": "10000000000048",
-    "category": "Pecas",
-    "status": "Ativo",
-    "created_at": "2025-03-23T03:28:28.748Z"
-  },
-  {
-    "id": "V-00049",
-    "name": "Fornecedor 49",
-    "contact": "Contato 49",
-    "email": "fornecedor49@example.com",
-    "cnpj": "10000000000049",
-    "category": "Lubrificantes",
-    "status": "Ativo",
-    "created_at": "2025-02-03T03:28:28.748Z"
-  },
-  {
-    "id": "V-00050",
-    "name": "Fornecedor 50",
-    "contact": "Contato 50",
-    "email": "fornecedor50@example.com",
-    "cnpj": "10000000000050",
-    "category": "Ferramentas",
-    "status": "Ativo",
-    "created_at": "2025-07-27T03:28:28.748Z"
   },
   {
     "name": "Norte Tech Servicos em Energia LTDA -",
@@ -560,5 +100,49 @@
     "name": "Fornecedor Auto ID 1770886021396",
     "contact": "(11) 98888-7777",
     "id_fornecedor": 1000003
+  },
+  {
+    "id": "VEN-TEST-AUTO-1770932107580",
+    "razao_social": "Fornecedor Auto ID 1770932107580",
+    "nome_fantasia": "Auto ID",
+    "cnpj": "97093210758006",
+    "telefone": "(11) 98888-7777",
+    "status": "Ativo",
+    "name": "Fornecedor Auto ID 1770932107580",
+    "contact": "(11) 98888-7777",
+    "id_fornecedor": 1000004
+  },
+  {
+    "id": "VEN-TEST-AUTO-1770932121486",
+    "razao_social": "Fornecedor Auto ID 1770932121486",
+    "nome_fantasia": "Auto ID",
+    "cnpj": "97093212148604",
+    "telefone": "(11) 98888-7777",
+    "status": "Ativo",
+    "name": "Fornecedor Auto ID 1770932121486",
+    "contact": "(11) 98888-7777",
+    "id_fornecedor": 1000005
+  },
+  {
+    "id": "VEN-TEST-AUTO-1770932160490",
+    "razao_social": "Fornecedor Auto ID 1770932160490",
+    "nome_fantasia": "Auto ID",
+    "cnpj": "97093216049007",
+    "telefone": "(11) 98888-7777",
+    "status": "Ativo",
+    "name": "Fornecedor Auto ID 1770932160490",
+    "contact": "(11) 98888-7777",
+    "id_fornecedor": 1000006
+  },
+  {
+    "id": "VEN-TEST-AUTO-1770932217036",
+    "razao_social": "Fornecedor Auto ID 1770932217036",
+    "nome_fantasia": "Auto ID",
+    "cnpj": "97093221703607",
+    "telefone": "(11) 98888-7777",
+    "status": "Ativo",
+    "name": "Fornecedor Auto ID 1770932217036",
+    "contact": "(11) 98888-7777",
+    "id_fornecedor": 1000007
   }
 ]

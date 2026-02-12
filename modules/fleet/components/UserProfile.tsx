@@ -4,7 +4,7 @@ import { MaterialIcon } from '../constants';
 
 const UserProfile: React.FC = () => {
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="w-full space-y-8">
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-sm">
          <div className="flex items-center gap-6 mb-10">
             <div className="relative">
@@ -50,8 +50,8 @@ const UserProfile: React.FC = () => {
          </div>
          
          <div className="mt-10 pt-8 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
-            <button className="px-6 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl text-sm font-bold">Descartar</button>
-            <button className="px-6 py-2.5 bg-primary text-white rounded-xl text-sm font-bold shadow-lg shadow-primary/20">Salvar Alterações</button>
+            <button className="px-6 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all active:scale-95">Descartar</button>
+            <button className="px-6 py-2.5 bg-primary text-white rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all active:scale-95">Salvar Alterações</button>
          </div>
       </div>
 
@@ -68,8 +68,8 @@ const UserProfile: React.FC = () => {
                      <p className="text-sm font-bold">{pref.title}</p>
                      <p className="text-xs text-slate-500">{pref.desc}</p>
                   </div>
-                  <button className={`w-12 h-6 rounded-full relative transition-colors ${pref.active ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'}`}>
-                     <div className={`absolute top-1 size-4 bg-white rounded-full transition-all ${pref.active ? 'right-1' : 'left-1'}`}></div>
+                  <button className={`w-12 h-6 rounded-full relative transition-all duration-200 ${pref.active ? 'bg-primary' : 'bg-slate-200 dark:bg-slate-700'} hover:scale-105 active:scale-95`}>
+                     <div className={`absolute top-1 size-4 bg-white rounded-full transition-all duration-200 ${pref.active ? 'right-1' : 'left-1'}`}></div>
                   </button>
                </div>
             ))}
@@ -80,3 +80,6 @@ const UserProfile: React.FC = () => {
 };
 
 export default UserProfile;
+
+
+

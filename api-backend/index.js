@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import helmet from 'helmet';
 import compression from 'compression';
 import { fileURLToPath } from 'url';
+import { WebSocketServer } from 'ws';
 
 dotenv.config();
 
@@ -54,6 +55,10 @@ const TABLE_WHITELIST = [
   'material_requests',
   'cost_centers',
   'audit_logs',
+  'mechanics',
+  'work_orders',
+  'work_order_logs',
+  'work_order_assignments',
 ];
 
 const TABLE_COLUMNS = {
@@ -101,6 +106,7 @@ const TABLE_COLUMNS = {
     'gestao_multa',
     'setor_veiculo',
     'responsavel_veiculo',
+    'source_module',
     'created_at',
   ],
   fleet_people: [
@@ -142,12 +148,88 @@ const TABLE_COLUMNS = {
     'meta',
     'created_at',
   ],
+  mechanics: [
+    'id',
+    'name',
+    'specialty',
+    'shift',
+    'status',
+    'current_work_orders',
+    'orders_completed',
+    'avg_hours_per_order',
+    'on_time_rate',
+    'created_at',
+    'updated_at',
+  ],
+  work_orders: [
+    'id',
+    'vehicle_plate',
+    'vehicle_model',
+    'status',
+    'type',
+    'priority',
+    'mechanic_id',
+    'mechanic_name',
+    'supervisor_id',
+    'supervisor_name',
+    'workshop_unit',
+    'description',
+    'services',
+    'parts',
+    'opened_at',
+    'closed_at',
+    'estimated_hours',
+    'actual_hours',
+    'status_timers',
+    'total_seconds',
+    'last_status_change',
+    'is_timer_active',
+    'cost_center',
+    'cost_labor',
+    'cost_parts',
+    'cost_third_party',
+    'cost_total',
+    'created_by',
+    'warehouse_id',
+    'locked_by',
+    'locked_at',
+    'created_at',
+    'updated_at',
+  ],
+  work_order_logs: [
+    'id',
+    'work_order_id',
+    'previous_status',
+    'new_status',
+    'timestamp',
+    'user_id',
+    'duration_seconds',
+    'created_at',
+  ],
+  work_order_assignments: [
+    'id',
+    'work_order_id',
+    'service_id',
+    'previous_mechanic_id',
+    'previous_mechanic_name',
+    'new_mechanic_id',
+    'new_mechanic_name',
+    'service_category',
+    'service_description',
+    'timestamp',
+    'accumulated_seconds',
+    'created_by',
+    'warehouse_id',
+    'created_at',
+  ],
 };
 
 const TABLE_JSON_COLUMNS = {
   users: ['modules', 'allowed_warehouses'],
   purchase_orders: ['items', 'quotes', 'approval_history'],
   audit_logs: ['before_data', 'after_data', 'meta'],
+  mechanics: ['current_work_orders'],
+  work_orders: ['services', 'parts', 'status_timers'],
 };
 
 const TABLE_TIMESTAMP_COLUMNS = {
@@ -164,6 +246,10 @@ const TABLE_TIMESTAMP_COLUMNS = {
   purchase_orders: ['request_date', 'sent_to_vendor_at', 'received_at', 'quotes_added_at', 'approved_at', 'rejected_at'],
   cyclic_batches: ['scheduled_date', 'completed_at'],
   cyclic_counts: ['counted_at'],
+  mechanics: ['created_at', 'updated_at'],
+  work_orders: ['opened_at', 'closed_at', 'last_status_change', 'created_at', 'updated_at', 'locked_at'],
+  work_order_logs: ['timestamp', 'created_at'],
+  work_order_assignments: ['timestamp', 'created_at'],
 };
 
 const ensureDataDirExists = () => {
@@ -173,6 +259,29 @@ const ensureDataDirExists = () => {
 };
 
 ensureDataDirExists();
+
+const wsClients = new Set();
+const WORKSHOP_WS_TABLES = new Set(['work_orders', 'work_order_logs', 'work_order_assignments']);
+
+const broadcastWorkshopEvent = (table, action, data) => {
+  if (!WORKSHOP_WS_TABLES.has(table)) return;
+  const payload = JSON.stringify({
+    type: 'workshop_update',
+    table,
+    action,
+    data,
+  });
+
+  wsClients.forEach((client) => {
+    if (client?.readyState === 1) {
+      try {
+        client.send(payload);
+      } catch {
+        // ignore send failures
+      }
+    }
+  });
+};
 
 let dbConnected = false;
 let dbLastError = null;
@@ -415,7 +524,8 @@ const parseDateFilter = (dateValue) => {
 
 const WRITE_RESTRICTED_TABLES = new Set(['vehicles']);
 const DB_TRIGGER_AUDITED_TABLES = new Set(['vendors', 'inventory', 'fleet_vehicles']);
-const FLEET_WRITE_ALLOWED_SOURCE_MODULES = new Set(['gestao_frota', 'frota', 'oficina']);
+const FLEET_WRITE_ALLOWED_SOURCE_MODULES = new Set(['gestao_frota', 'oficina']);
+const FLEET_READ_ALLOWED_SOURCE_MODULES = new Set(['gestao_frota', 'oficina', 'armazem']);
 const VENDOR_RAZAO_SOCIAL_MAX_LENGTH = 150;
 const VENDOR_NOME_FANTASIA_MAX_LENGTH = 100;
 const INVENTORY_DESCRIPTION_MAX_LENGTH = 255;
@@ -424,6 +534,22 @@ const normalizeDigits = (value) => String(value ?? '').replace(/\D+/g, '');
 const normalizeWhitespace = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const normalizeVendorStatus = (value) =>
   String(value || '').toLowerCase() === 'bloqueado' ? 'Bloqueado' : 'Ativo';
+
+const normalizeFleetSourceModule = (value) => {
+  const token = normalizeWhitespace(value).toLowerCase();
+  if (!token) return '';
+  if (token === 'frota' || token === 'gestao_de_frota') return 'gestao_frota';
+  if (token === 'workshop') return 'oficina';
+  if (token === 'warehouse') return 'armazem';
+  return token;
+};
+
+const resolveFleetReadSourceFilter = (sourceModule) => {
+  if (!sourceModule) return '';
+  // Armazem consome o cadastro central gerenciado pela Gestao de Frota.
+  if (sourceModule === 'armazem') return 'gestao_frota';
+  return sourceModule;
+};
 
 const normalizeCnpj = (value) => normalizeDigits(value).slice(0, 14);
 
@@ -579,7 +705,24 @@ const findVendorConflictInDb = async (db, row, ignoreId = null) => {
 };
 
 const getSourceModuleFromRequest = (req) =>
-  normalizeWhitespace(toScalar(req?.query?.source_module || '')).toLowerCase();
+  normalizeFleetSourceModule(toScalar(req?.query?.source_module || ''));
+
+const ensureFleetReadSourceModule = (table, req, res) => {
+  if (table !== 'fleet_vehicles') return true;
+
+  const sourceModule = getSourceModuleFromRequest(req);
+  if (!sourceModule) return true;
+
+  if (!FLEET_READ_ALLOWED_SOURCE_MODULES.has(sourceModule)) {
+    res.status(400).json({
+      data: null,
+      error: `source_module invalido para leitura em fleet_vehicles: ${sourceModule}`,
+    });
+    return false;
+  }
+
+  return true;
+};
 
 const ensureFleetWriteSourceModule = (table, req, res) => {
   if (table !== 'fleet_vehicles') return true;
@@ -781,6 +924,67 @@ const normalizeRowsByTable = (table, rows) => {
     );
     if (!shouldNormalize) return rows;
     return rows.map((row) => normalizePurchaseOrderRecord(row));
+  }
+
+  if (table === 'work_orders') {
+    const shouldNormalize = rows.some(
+      (row) =>
+        typeof row?.services === 'string' ||
+        typeof row?.parts === 'string' ||
+        typeof row?.status_timers === 'string'
+    );
+    if (!shouldNormalize) return rows;
+    return rows.map((row) => ({
+      ...row,
+      services: parseJsonField(row.services, []),
+      parts: parseJsonField(row.parts, []),
+      status_timers: parseJsonField(row.status_timers, {}),
+    }));
+  }
+
+  if (table === 'mechanics') {
+    const shouldNormalize = rows.some((row) => typeof row?.current_work_orders === 'string');
+    if (!shouldNormalize) return rows;
+    return rows.map((row) => ({
+      ...row,
+      current_work_orders: parseJsonField(row.current_work_orders, []),
+    }));
+  }
+
+  if (table === 'fleet_vehicles') {
+    const pickNewest = (currentRow, nextRow) => {
+      const currentTs = new Date(String(currentRow?.created_at || '')).getTime();
+      const nextTs = new Date(String(nextRow?.created_at || '')).getTime();
+      if (Number.isNaN(currentTs) && Number.isNaN(nextTs)) return currentRow;
+      if (Number.isNaN(currentTs)) return nextRow;
+      if (Number.isNaN(nextTs)) return currentRow;
+      return nextTs >= currentTs ? nextRow : currentRow;
+    };
+
+    const dedupedByPlate = new Map();
+
+    rows.forEach((row) => {
+      const placa = String(row?.placa || row?.plate || '')
+        .trim()
+        .toUpperCase();
+      if (!placa) return;
+
+      const normalizedRow = {
+        ...row,
+        placa,
+        source_module: normalizeFleetSourceModule(row?.source_module) || 'gestao_frota',
+      };
+
+      const existing = dedupedByPlate.get(placa);
+      if (!existing) {
+        dedupedByPlate.set(placa, normalizedRow);
+        return;
+      }
+
+      dedupedByPlate.set(placa, pickNewest(existing, normalizedRow));
+    });
+
+    return Array.from(dedupedByPlate.values());
   }
 
   if (table === 'vendors') {
@@ -1395,6 +1599,67 @@ app.post('/fleet-sync', authenticate, async (req, res) => {
   }
 });
 
+app.get('/workshop/productivity', authenticate, async (req, res) => {
+  const from = parseDateFilter(toScalar(req.query.from));
+  const to = parseDateFilter(toScalar(req.query.to));
+  const mechanicId = toScalar(req.query.mechanic_id || req.query.mechanicId);
+  const serviceCategory = toScalar(req.query.service_category || req.query.serviceCategory);
+
+  const applyFilters = (rows) => {
+    return rows.filter((row) => {
+      const timestamp = new Date(String(row?.timestamp || row?.created_at || ''));
+      if (Number.isNaN(timestamp.getTime())) return false;
+      if (from && timestamp < new Date(from)) return false;
+      if (to && timestamp > new Date(to)) return false;
+      if (mechanicId && String(row?.new_mechanic_id || '') !== mechanicId) return false;
+      if (serviceCategory && String(row?.service_category || '') !== serviceCategory) return false;
+      return true;
+    });
+  };
+
+  if (!dbConnected) {
+    const rows = normalizeRowsByTable('work_order_assignments', readJson('work_order_assignments'));
+    const filtered = applyFilters(rows);
+    res.json({ data: sanitizeResponse(filtered), error: null });
+    return;
+  }
+
+  try {
+    const values = [];
+    const clauses = [];
+
+    if (from) {
+      values.push(from);
+      clauses.push(`timestamp >= $${values.length}`);
+    }
+    if (to) {
+      values.push(to);
+      clauses.push(`timestamp <= $${values.length}`);
+    }
+    if (mechanicId) {
+      values.push(mechanicId);
+      clauses.push(`new_mechanic_id = $${values.length}`);
+    }
+    if (serviceCategory) {
+      values.push(serviceCategory);
+      clauses.push(`service_category = $${values.length}`);
+    }
+
+    let query = 'SELECT * FROM work_order_assignments';
+    if (clauses.length > 0) {
+      query += ` WHERE ${clauses.join(' AND ')}`;
+    }
+    query += ' ORDER BY timestamp DESC';
+
+    const result = await pool.query(query, values);
+    const rows = normalizeRowsByTable('work_order_assignments', result.rows);
+    res.json({ data: sanitizeResponse(rows), error: null });
+  } catch (err) {
+    markDbDisconnectedIfNeeded(err);
+    sendServerError(res, err);
+  }
+});
+
 app.post('/receipts/finalize', authenticate, async (req, res) => {
   const poId = String(req.body?.po_id || req.body?.poId || '').trim();
   const requestedWarehouseId = String(req.body?.warehouse_id || req.body?.warehouseId || '').trim();
@@ -1937,13 +2202,24 @@ app.get('/audit_logs/search', authenticate, async (req, res) => {
 
 app.get('/:table/count', authenticate, async (req, res) => {
   const { table } = req.params;
+  const sourceModule = getSourceModuleFromRequest(req);
 
   if (!validateTable(table)) {
     res.status(403).json({ data: null, error: 'Tabela nao permitida' });
     return;
   }
 
+  if (!ensureFleetReadSourceModule(table, req, res)) {
+    return;
+  }
+
   const filters = getFiltersFromQuery(req.query);
+  if (table === 'fleet_vehicles') {
+    const scopedSourceModule = resolveFleetReadSourceFilter(sourceModule);
+    if (scopedSourceModule) {
+      filters.source_module = scopedSourceModule;
+    }
+  }
   if (!areColumnsAllowed(table, Object.keys(filters))) {
     res.status(400).json({ data: null, error: 'Filtro com coluna nao permitida' });
     return;
@@ -2004,14 +2280,24 @@ app.get('/:table', authenticate, async (req, res) => {
   const { table } = req.params;
   const actor = String(req.auth?.email || req.auth?.sub || 'Sistema');
   const actorId = req.auth?.sub ? String(req.auth.sub) : null;
-  const sourceModule = normalizeWhitespace(toScalar(req.query.source_module));
+  const sourceModule = getSourceModuleFromRequest(req);
 
   if (!validateTable(table)) {
     res.status(403).json({ data: null, error: 'Tabela nao permitida' });
     return;
   }
 
+  if (!ensureFleetReadSourceModule(table, req, res)) {
+    return;
+  }
+
   const filters = getFiltersFromQuery(req.query);
+  if (table === 'fleet_vehicles') {
+    const scopedSourceModule = resolveFleetReadSourceFilter(sourceModule);
+    if (scopedSourceModule) {
+      filters.source_module = scopedSourceModule;
+    }
+  }
   if (!areColumnsAllowed(table, Object.keys(filters))) {
     res.status(400).json({ data: null, error: 'Filtro com coluna nao permitida' });
     return;
@@ -2181,6 +2467,7 @@ app.post('/:table', authenticate, async (req, res) => {
   const { table } = req.params;
   const actor = String(req.auth?.email || req.auth?.sub || 'Sistema');
   const actorId = req.auth?.sub ? String(req.auth.sub) : null;
+  const sourceModule = getSourceModuleFromRequest(req);
 
   if (!validateTable(table)) {
     res.status(403).json({ data: null, error: 'Tabela nao permitida' });
@@ -2261,6 +2548,7 @@ app.post('/:table', authenticate, async (req, res) => {
         if (!nextRow.placa) {
           throw new Error('Placa obrigatoria para cadastro de veiculo de frota');
         }
+        nextRow.source_module = sourceModule;
         if (nextRow.km_atual === null || nextRow.km_atual === undefined || Number.isNaN(Number(nextRow.km_atual))) {
           nextRow.km_atual = 0;
         }
@@ -2304,12 +2592,89 @@ app.post('/:table', authenticate, async (req, res) => {
         if (!nextRow.status) nextRow.status = 'PENDENTE';
         if (!nextRow.created_at) nextRow.created_at = new Date().toISOString();
       }
+      if (table === 'mechanics') {
+        if (!nextRow.id) nextRow.id = crypto.randomUUID();
+        if (!nextRow.status) nextRow.status = 'disponivel';
+        if (!nextRow.current_work_orders) nextRow.current_work_orders = [];
+        if (!nextRow.created_at) nextRow.created_at = new Date().toISOString();
+      }
+      if (table === 'work_orders') {
+        if (!nextRow.id) nextRow.id = `OS-${Date.now()}`;
+        if (!nextRow.status) nextRow.status = 'aguardando';
+        if (!nextRow.opened_at) nextRow.opened_at = new Date().toISOString();
+        if (!nextRow.last_status_change) nextRow.last_status_change = nextRow.opened_at;
+        if (nextRow.total_seconds === null || nextRow.total_seconds === undefined) {
+          nextRow.total_seconds = 0;
+        }
+        if (!nextRow.status_timers) nextRow.status_timers = {};
+        if (typeof nextRow.is_timer_active !== 'boolean') {
+          nextRow.is_timer_active = nextRow.status === 'em_execucao';
+        }
+        if (!nextRow.created_at) nextRow.created_at = new Date().toISOString();
+      }
+      if (table === 'work_order_logs') {
+        if (!nextRow.id) nextRow.id = crypto.randomUUID();
+        if (!nextRow.timestamp) nextRow.timestamp = new Date().toISOString();
+        if (!nextRow.created_at) nextRow.created_at = new Date().toISOString();
+      }
+      if (table === 'work_order_assignments') {
+        if (!nextRow.id) nextRow.id = crypto.randomUUID();
+        if (!nextRow.timestamp) nextRow.timestamp = new Date().toISOString();
+        if (!nextRow.created_at) nextRow.created_at = new Date().toISOString();
+      }
       return nextRow;
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Dados invalidos para criacao';
     res.status(400).json({ data: null, error: message });
     return;
+  }
+
+  if (table === 'work_orders') {
+    try {
+      const normalizePlate = (value) => String(value || '').trim().toUpperCase();
+      const isOpenStatus = (status) => !['finalizada', 'cancelada'].includes(String(status || '').toLowerCase());
+
+      const plates = preparedRows
+        .map((row) => normalizePlate(row?.vehicle_plate ?? row?.vehiclePlate))
+        .filter(Boolean);
+
+      const uniquePlates = [...new Set(plates)];
+      if (plates.length !== uniquePlates.length) {
+        throw new Error('Nao e permitido criar duas OS abertas para a mesma placa no mesmo envio.');
+      }
+
+      if (uniquePlates.length > 0) {
+        if (!dbConnected) {
+          const existingRows = normalizeRowsByTable('work_orders', readJson('work_orders'));
+          const conflict = existingRows.find((row) => {
+            const plate = normalizePlate(row?.vehicle_plate ?? row?.vehiclePlate);
+            if (!plate || !uniquePlates.includes(plate)) return false;
+            return isOpenStatus(row?.status);
+          });
+          if (conflict) {
+            throw new Error(`Ja existe uma OS aberta para a placa ${normalizePlate(conflict.vehicle_plate) || 'informada'}`);
+          }
+        } else {
+          const placeholders = uniquePlates.map((_, index) => `$${index + 1}`).join(', ');
+          const query = `
+            SELECT vehicle_plate
+            FROM work_orders
+            WHERE vehicle_plate IN (${placeholders})
+              AND status NOT IN ('finalizada', 'cancelada')
+            LIMIT 1
+          `;
+          const result = await pool.query(query, uniquePlates);
+          if (result.rows?.length > 0) {
+            throw new Error(`Ja existe uma OS aberta para a placa ${normalizePlate(result.rows[0].vehicle_plate)}`);
+          }
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'OS aberta existente para a placa informada';
+      res.status(409).json({ data: null, error: message });
+      return;
+    }
   }
 
   if (table === 'vendors') {
@@ -2390,10 +2755,57 @@ app.post('/:table', authenticate, async (req, res) => {
     }
   }
 
+  if (table === 'fleet_vehicles') {
+    try {
+      const batchPlates = new Set();
+      for (const row of preparedRows) {
+        const plate = String(row?.placa || '')
+          .trim()
+          .toUpperCase();
+        if (!plate) continue;
+        if (batchPlates.has(plate)) {
+          throw new Error(`Placa duplicada no lote: ${plate}`);
+        }
+        batchPlates.add(plate);
+      }
+
+      if (!dbConnected) {
+        const existingPlates = new Set(
+          normalizeRowsByTable('fleet_vehicles', readJson('fleet_vehicles'))
+            .map((row) => String(row?.placa || '').trim().toUpperCase())
+            .filter(Boolean)
+        );
+        for (const plate of batchPlates) {
+          if (existingPlates.has(plate)) {
+            throw new Error(`Placa ja cadastrada: ${plate}`);
+          }
+        }
+      } else {
+        const plateList = Array.from(batchPlates);
+        if (plateList.length > 0) {
+          const conflictResult = await pool.query(
+            'SELECT placa FROM fleet_vehicles WHERE placa = ANY($1::text[]) LIMIT 1',
+            [plateList]
+          );
+          const conflictPlate = conflictResult.rows?.[0]?.placa;
+          if (conflictPlate) {
+            throw new Error(`Placa ja cadastrada: ${String(conflictPlate).toUpperCase()}`);
+          }
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Dados de veiculo de frota invalidos';
+      res.status(409).json({ data: null, error: message });
+      return;
+    }
+  }
+
   if (!dbConnected) {
     const currentData = readJson(table);
     const updatedData = [...currentData, ...preparedRows];
-    writeJson(table, updatedData);
+    const dataToPersist =
+      table === 'fleet_vehicles' ? normalizeRowsByTable('fleet_vehicles', updatedData) : updatedData;
+    writeJson(table, dataToPersist);
 
     if (table !== 'audit_logs') {
       const auditEntries = preparedRows.map((row) =>
@@ -2415,6 +2827,7 @@ app.post('/:table', authenticate, async (req, res) => {
 
     const normalizedRows = normalizeRowsByTable(table, preparedRows);
     const responseData = Array.isArray(payload) ? normalizedRows : normalizedRows[0];
+    broadcastWorkshopEvent(table, 'create', sanitizeResponse(responseData));
     res.json({ data: sanitizeResponse(responseData), error: null });
     return;
   }
@@ -2464,7 +2877,9 @@ app.post('/:table', authenticate, async (req, res) => {
 
     await client.query('COMMIT');
 
-    res.json({ data: sanitizeResponse(Array.isArray(payload) ? normalized : normalized[0]), error: null });
+    const responseData = Array.isArray(payload) ? normalized : normalized[0];
+    broadcastWorkshopEvent(table, 'create', sanitizeResponse(responseData));
+    res.json({ data: sanitizeResponse(responseData), error: null });
   } catch (err) {
     if (client) await client.query('ROLLBACK');
     if (sendUniqueConstraintConflict(res, err)) return;
@@ -2479,6 +2894,7 @@ app.patch('/:table', authenticate, async (req, res) => {
   const { table } = req.params;
   const actor = String(req.auth?.email || req.auth?.sub || 'Sistema');
   const actorId = req.auth?.sub ? String(req.auth.sub) : null;
+  const sourceModule = getSourceModuleFromRequest(req);
 
   if (!validateTable(table)) {
     res.status(403).json({ data: null, error: 'Tabela nao permitida' });
@@ -2503,6 +2919,9 @@ app.patch('/:table', authenticate, async (req, res) => {
   }
 
   const updates = { ...req.body };
+  if (table === 'fleet_vehicles') {
+    updates.source_module = sourceModule;
+  }
   if (!areColumnsAllowed(table, Object.keys(updates))) {
     res.status(400).json({ data: null, error: 'Update contem coluna nao permitida' });
     return;
@@ -2599,6 +3018,9 @@ app.patch('/:table', authenticate, async (req, res) => {
   }
 
   const filters = getFiltersFromQuery(req.query);
+  if (table === 'fleet_vehicles') {
+    filters.source_module = sourceModule;
+  }
   if (Object.keys(filters).length === 0) {
     res.status(400).json({ data: null, error: 'Filtro obrigatorio para update' });
     return;
@@ -2640,7 +3062,9 @@ app.patch('/:table', authenticate, async (req, res) => {
       }
     }
 
-    writeJson(table, nextData);
+    const dataToPersist =
+      table === 'fleet_vehicles' ? normalizeRowsByTable('fleet_vehicles', nextData) : nextData;
+    writeJson(table, dataToPersist);
 
     if (table !== 'audit_logs') {
       const auditEntries = updatedRows.map((row, index) =>
@@ -2663,7 +3087,9 @@ app.patch('/:table', authenticate, async (req, res) => {
       await persistAuditLogs(auditEntries);
     }
 
-    res.json({ data: sanitizeResponse(normalizeRowsByTable(table, updatedRows)), error: null });
+    const responseData = normalizeRowsByTable(table, updatedRows);
+    broadcastWorkshopEvent(table, 'update', sanitizeResponse(responseData));
+    res.json({ data: sanitizeResponse(responseData), error: null });
     return;
   }
 
@@ -2744,6 +3170,7 @@ app.patch('/:table', authenticate, async (req, res) => {
     }
 
     await client.query('COMMIT');
+    broadcastWorkshopEvent(table, 'update', sanitizeResponse(normalizedRows));
     res.json({ data: sanitizeResponse(normalizedRows), error: null });
   } catch (err) {
     if (client) {
@@ -2765,6 +3192,7 @@ app.delete('/:table', authenticate, async (req, res) => {
   const { table } = req.params;
   const actor = String(req.auth?.email || req.auth?.sub || 'Sistema');
   const actorId = req.auth?.sub ? String(req.auth.sub) : null;
+  const sourceModule = getSourceModuleFromRequest(req);
 
   if (!validateTable(table)) {
     res.status(403).json({ data: null, error: 'Tabela nao permitida' });
@@ -2784,6 +3212,9 @@ app.delete('/:table', authenticate, async (req, res) => {
   }
 
   const filters = getFiltersFromQuery(req.query);
+  if (table === 'fleet_vehicles') {
+    filters.source_module = sourceModule;
+  }
   if (Object.keys(filters).length === 0) {
     res.status(400).json({ data: null, error: 'Filtro obrigatorio para delete' });
     return;
@@ -2804,7 +3235,9 @@ app.delete('/:table', authenticate, async (req, res) => {
     }
 
     const remainingRows = currentData.filter((row) => !isRowMatch(row, filters));
-    writeJson(table, remainingRows);
+    const dataToPersist =
+      table === 'fleet_vehicles' ? normalizeRowsByTable('fleet_vehicles', remainingRows) : remainingRows;
+    writeJson(table, dataToPersist);
 
     if (table !== 'audit_logs') {
       const auditEntries = deletedRows.map((row) =>
@@ -2824,7 +3257,9 @@ app.delete('/:table', authenticate, async (req, res) => {
       await persistAuditLogs(auditEntries);
     }
 
-    res.json({ data: sanitizeResponse(normalizeRowsByTable(table, deletedRows)), error: null });
+    const responseData = normalizeRowsByTable(table, deletedRows);
+    broadcastWorkshopEvent(table, 'delete', sanitizeResponse(responseData));
+    res.json({ data: sanitizeResponse(responseData), error: null });
     return;
   }
 
@@ -2868,6 +3303,7 @@ app.delete('/:table', authenticate, async (req, res) => {
     }
 
     await client.query('COMMIT');
+    broadcastWorkshopEvent(table, 'delete', sanitizeResponse(normalizedRows));
     res.json({ data: sanitizeResponse(normalizedRows), error: null });
   } catch (err) {
     if (client) {
@@ -2890,8 +3326,27 @@ setInterval(() => {
   void runPurchaseOrdersRetentionCleanup();
 }, PO_RETENTION_CLEANUP_INTERVAL_MS);
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`API running on port ${port}`);
   if (!dbConnected) console.log('JSON contingency mode active');
+});
+
+const wss = new WebSocketServer({ server, path: '/ws' });
+wss.on('connection', (socket, req) => {
+  try {
+    const url = new URL(req.url || '', `http://${req.headers.host}`);
+    const token = url.searchParams.get('token');
+    if (token) {
+      jwt.verify(token, JWT_SECRET);
+    }
+  } catch {
+    socket.close();
+    return;
+  }
+
+  wsClients.add(socket);
+  socket.on('close', () => {
+    wsClients.delete(socket);
+  });
 });
 

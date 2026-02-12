@@ -51,6 +51,10 @@ const ROLE_ALIASES: Record<string, User['role']> = {
   operador: 'operator',
   checker: 'checker',
   conferente: 'checker',
+  mechanic_supervisor: 'mechanic_supervisor',
+  supervisor_mecanico: 'mechanic_supervisor',
+  supervisor_mecanico_oficina: 'mechanic_supervisor',
+  supervisor_mecanico_frota: 'mechanic_supervisor',
 };
 
 const normalizeToken = (value: unknown) =>

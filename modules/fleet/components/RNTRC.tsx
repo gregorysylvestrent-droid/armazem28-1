@@ -100,10 +100,14 @@ const RNTRC: React.FC = () => {
                           </Badge>
                        </td>
                        <td className="px-8 py-4 text-right">
-                          <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                             <button title="Ver Comprovante" className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-primary"><MaterialIcon name="description" /></button>
-                             <button title="Editar" className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-primary"><MaterialIcon name="edit" /></button>
-                          </div>
+                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                             <button title="Ver Comprovante" className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-primary transition-all active:scale-95">
+                               <MaterialIcon name="description" />
+                             </button>
+                             <button title="Editar" className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-primary transition-all active:scale-95">
+                               <MaterialIcon name="edit" />
+                             </button>
+                         </div>
                        </td>
                     </tr>
                   ))}

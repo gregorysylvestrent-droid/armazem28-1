@@ -21,7 +21,8 @@ export const ROLE_LABELS = {
   manager: 'Gerente',
   driver: 'Motorista',
   operator: 'Operador',
-  checker: 'Conferente'
+  checker: 'Conferente',
+  mechanic_supervisor: 'Supervisor Mecânico'
 };
 
 export const PO_STATUS_LABELS = {
@@ -188,7 +189,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'buyer' | 'manager' | 'driver' | 'operator' | 'checker';
+  role: 'admin' | 'buyer' | 'manager' | 'driver' | 'operator' | 'checker' | 'mechanic_supervisor';
   status: 'Ativo' | 'Inativo';
   lastAccess: string;
   avatar: string;
@@ -245,8 +246,9 @@ export type SystemModule = 'warehouse' | 'workshop' | 'fleet';
 
 // ===== MÓDULO OFICINA =====
 export type WorkOrderStatus = 'aguardando' | 'em_execucao' | 'aguardando_pecas' | 'finalizada' | 'cancelada';
-export type WorkOrderType = 'preventiva' | 'corretiva' | 'urgente' | 'revisao' | 'garantia';
+export type WorkOrderType = 'preventiva' | 'corretiva' | 'urgente' | 'revisao' | 'garantia' | 'tav' | 'terceiros';
 export type ServiceCategory = 'motor' | 'suspensao' | 'freios' | 'eletrica' | 'lubrificacao' | 'pneus' | 'carroceria' | 'outros';
+export type WorkOrderStatusTimers = Partial<Record<WorkOrderStatus, number>>;
 
 export interface WorkOrder {
   id: string;
@@ -257,6 +259,9 @@ export interface WorkOrder {
   priority: 'baixa' | 'normal' | 'alta' | 'urgente';
   mechanicId?: string; // Mantido para compatibilidade (Lead Mechanic)
   mechanicName?: string;
+  supervisorId?: string; // Supervisor mecânico (Gestão de Frota)
+  supervisorName?: string;
+  workshopUnit?: string; // Oficina responsável
   description: string;
   services: ServiceItem[];
   parts: PartRequest[];
@@ -278,6 +283,7 @@ export interface WorkOrder {
   totalSeconds?: number; // Tempo total acumulado em segundos
   lastStatusChange?: string; // Timestamp da última mudança de status
   isTimerActive?: boolean; // Se o contador está rodando
+  statusTimers?: WorkOrderStatusTimers; // Tempo acumulado por status
   lockedBy?: string; // ID do usuário editando
   lockedAt?: string; // Timestamp do início da edição
 }
@@ -293,7 +299,10 @@ export interface ServiceItem {
   // New fields
   mechanicId?: string; // Mecânico responsável por este serviço
   mechanicName?: string;
-  actualHours?: number;
+  startedAt?: string;
+  actualSeconds?: number;
+  isTimerActive?: boolean;
+  completedAt?: string;
 }
 
 export interface TimeLog {
@@ -304,6 +313,22 @@ export interface TimeLog {
   timestamp: string;
   userId: string;
   durationSeconds?: number; // Tempo decorrido no status anterior
+}
+
+export interface WorkOrderAssignmentLog {
+  id: string;
+  workOrderId: string;
+  serviceId: string;
+  previousMechanicId?: string;
+  previousMechanicName?: string;
+  newMechanicId?: string;
+  newMechanicName?: string;
+  serviceCategory?: ServiceCategory;
+  serviceDescription?: string;
+  timestamp: string;
+  accumulatedSeconds?: number;
+  createdBy?: string;
+  warehouseId?: string;
 }
 
 export interface PartRequest {
@@ -467,7 +492,9 @@ export const WORK_ORDER_TYPE_LABELS: Record<WorkOrderType, string> = {
   corretiva: 'Corretiva',
   urgente: 'Urgente',
   revisao: 'Revisão',
-  garantia: 'Garantia'
+  garantia: 'Garantia',
+  tav: 'TAV',
+  terceiros: 'Terceiros'
 };
 
 export const SERVICE_CATEGORY_LABELS: Record<ServiceCategory, string> = {

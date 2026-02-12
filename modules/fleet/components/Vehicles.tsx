@@ -10,9 +10,11 @@ type VehiclesProps = {
   loading?: boolean;
   error?: string | null;
   onRetry?: () => void;
+  onView?: (vehicle: Vehicle) => void;
+  onEdit?: (vehicle: Vehicle) => void;
 };
 
-const Vehicles: React.FC<VehiclesProps> = ({ vehicles, loading = false, error = null, onRetry }) => {
+const Vehicles: React.FC<VehiclesProps> = ({ vehicles, loading = false, error = null, onRetry, onView, onEdit }) => {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [activeFilter, setActiveFilter] = useState<VehicleFilter>('all');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -146,12 +148,24 @@ const Vehicles: React.FC<VehiclesProps> = ({ vehicles, loading = false, error = 
                         <Badge variant={v.status.licensing === 'REGULAR' ? 'success' : 'warning'}>{v.status.licensing}</Badge>
                       </td>
                       <td className="px-8 py-4 text-right">
-                        <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                          <button title="Visualizar Detalhes" className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-primary transition-colors">
-                            <MaterialIcon name="visibility" />
+                        <div className="flex justify-end gap-2">
+                          <button
+                            title="Visualizar Detalhes"
+                            type="button"
+                            onClick={() => onView?.(v)}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 text-[10px] font-black uppercase tracking-widest hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all"
+                          >
+                            <MaterialIcon name="visibility" className="!text-[16px]" />
+                            <span className="hidden lg:inline">Ver</span>
                           </button>
-                          <button title="Editar Cadastro" className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-lg text-slate-400 hover:text-primary transition-colors">
-                            <MaterialIcon name="edit" />
+                          <button
+                            title="Editar Cadastro"
+                            type="button"
+                            onClick={() => onEdit?.(v)}
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-primary text-white text-[10px] font-black uppercase tracking-widest shadow-sm shadow-primary/20 hover:bg-primary/90 transition-all"
+                          >
+                            <MaterialIcon name="edit" className="!text-[16px]" />
+                            <span className="hidden lg:inline">Editar</span>
                           </button>
                         </div>
                       </td>
@@ -209,9 +223,23 @@ const Vehicles: React.FC<VehiclesProps> = ({ vehicles, loading = false, error = 
                   </div>
                 </div>
 
-                <button className="w-full mt-6 py-2.5 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all">
-                  Ver Detalhes
-                </button>
+                <div className="mt-6 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onView?.(v)}
+                    className="flex-1 py-2.5 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all"
+                  >
+                    Ver Detalhes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onEdit?.(v)}
+                    className="px-3 py-2.5 bg-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary/90 transition-all"
+                    title="Editar"
+                  >
+                    <MaterialIcon name="edit" className="!text-[18px]" />
+                  </button>
+                </div>
               </div>
             ))
           )}

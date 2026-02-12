@@ -1,16 +1,18 @@
 ﻿﻿import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { WorkOrder, WorkOrderStatus, Mechanic, Vehicle, WORK_ORDER_STATUS_LABELS, WORK_ORDER_TYPE_LABELS, SERVICE_CATEGORY_LABELS, WORK_ORDER_PRIORITY_LABELS } from '../../types';
+import { WorkOrder, WorkOrderStatus, WorkOrderType, Mechanic, Vehicle, WORK_ORDER_STATUS_LABELS, WORK_ORDER_TYPE_LABELS, SERVICE_CATEGORY_LABELS, WORK_ORDER_PRIORITY_LABELS } from '../../types';
 import { formatCurrency } from '../../utils/format';
 import { NewWorkOrderModal } from './components/NewWorkOrderModal';
 
 interface WorkOrderKanbanProps {
   workOrders: WorkOrder[];
   mechanics: Mechanic[];
+  supervisors?: { id: string; name: string }[];
+  defaultSupervisor?: { id: string; name: string } | null;
   vehicles: Vehicle[];
   onUpdateStatus: (orderId: string, newStatus: WorkOrderStatus) => void;
   onUpdateOrder: (orderId: string, updates: Partial<WorkOrder>) => Promise<void>;
   onAssignMechanic: (orderId: string, mechanicId: string) => void;
-  onCreateOrder: (order: Partial<WorkOrder>) => Promise<void>;
+  onCreateOrder: (order: Partial<WorkOrder>) => Promise<string | undefined>;
   onViewOrder: (order: WorkOrder) => void;
   onLockOrder: (orderId: string) => Promise<void>;
   onUnlockOrder: (orderId: string) => Promise<void>;
@@ -18,7 +20,7 @@ interface WorkOrderKanbanProps {
   onError?: (message: string, error?: unknown) => void;
 }
 
-type FilterType = 'all' | 'preventiva' | 'corretiva' | 'urgente';
+type FilterType = 'all' | WorkOrderType;
 type FilterPriority = 'all' | 'normal' | 'alta' | 'urgente';
 
 const COLUMNS: WorkOrderStatus[] = ['aguardando', 'em_execucao', 'aguardando_pecas', 'finalizada'];
@@ -36,7 +38,9 @@ const TYPE_COLORS: Record<string, string> = {
   corretiva: 'bg-amber-100 text-amber-700',
   urgente: 'bg-red-100 text-red-700',
   revisao: 'bg-purple-100 text-purple-700',
-  garantia: 'bg-emerald-100 text-emerald-700'
+  garantia: 'bg-emerald-100 text-emerald-700',
+  tav: 'bg-slate-100 text-slate-700',
+  terceiros: 'bg-orange-100 text-orange-700'
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -44,6 +48,78 @@ const PRIORITY_COLORS: Record<string, string> = {
   normal: 'bg-blue-100 text-blue-600',
   alta: 'bg-amber-100 text-amber-600',
   urgente: 'bg-red-100 text-red-600'
+};
+
+const TIMELINE_STATUSES: WorkOrderStatus[] = ['aguardando', 'em_execucao', 'aguardando_pecas', 'finalizada'];
+
+const TIMELINE_LABELS: Record<WorkOrderStatus, string> = {
+  aguardando: 'Aguardando',
+  em_execucao: 'Em Execução',
+  aguardando_pecas: 'Pausado',
+  finalizada: 'Finalizado',
+  cancelada: 'Cancelada'
+};
+
+const formatDurationShort = (seconds: number) => {
+  const safe = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  if (h > 0) {
+    return `${h}h ${m.toString().padStart(2, '0')}m`;
+  }
+  return `${m}m`;
+};
+
+const formatDurationLong = (seconds: number) => {
+  const safe = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
+
+const getServiceActualSeconds = (service: WorkOrder['services'][number], nowMs: number) => {
+  const baseSeconds = service.actualSeconds ?? ((service.actualHours || 0) * 3600);
+  if (!service.isTimerActive || !service.startedAt) return baseSeconds;
+  const start = new Date(service.startedAt).getTime();
+  if (Number.isNaN(start)) return baseSeconds;
+  const extra = Math.max(0, Math.floor((nowMs - start) / 1000));
+  return baseSeconds + extra;
+};
+
+const getOrderActualSeconds = (order: WorkOrder, nowMs: number) => {
+  const services = Array.isArray(order.services) ? order.services : [];
+  if (services.length === 0 && order.actualHours) {
+    return order.actualHours * 3600;
+  }
+  return services.reduce((acc, service) => acc + getServiceActualSeconds(service, nowMs), 0);
+};
+
+const buildTimelineTimers = (order: WorkOrder, nowMs: number) => {
+  const timers: Record<WorkOrderStatus, number> = {
+    aguardando: 0,
+    em_execucao: 0,
+    aguardando_pecas: 0,
+    finalizada: 0,
+    cancelada: 0,
+  };
+
+  const existing = order.statusTimers || {};
+  Object.entries(existing).forEach(([key, value]) => {
+    if (key in timers && Number.isFinite(Number(value))) {
+      timers[key as WorkOrderStatus] = Number(value);
+    }
+  });
+
+  if (order.lastStatusChange && order.status !== 'finalizada' && order.status !== 'cancelada') {
+    const start = new Date(order.lastStatusChange).getTime();
+    if (!Number.isNaN(start)) {
+      const elapsed = Math.max(0, Math.floor((nowMs - start) / 1000));
+      timers[order.status] = (timers[order.status] || 0) + elapsed;
+    }
+  }
+
+  return timers;
 };
 
 const TimerDisplay: React.FC<{ totalSeconds: number; lastStatusChange?: string; isActive: boolean }> = ({ 
@@ -68,19 +144,12 @@ const TimerDisplay: React.FC<{ totalSeconds: number; lastStatusChange?: string; 
     return () => clearInterval(interval);
   }, [totalSeconds, lastStatusChange, isActive]);
 
-  const formatDuration = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
   return (
     <div className={`flex items-center gap-1 text-xs font-mono ${isActive ? 'text-green-600 dark:text-green-400 font-bold' : 'text-slate-500'}`}>
       <svg className={`w-3.5 h-3.5 ${isActive ? 'animate-pulse' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      <span>{formatDuration(displaySeconds)}</span>
+      <span>{formatDurationLong(displaySeconds)}</span>
     </div>
   );
 };
@@ -88,6 +157,8 @@ const TimerDisplay: React.FC<{ totalSeconds: number; lastStatusChange?: string; 
 export const WorkOrderKanban: React.FC<WorkOrderKanbanProps> = ({
   workOrders,
   mechanics,
+  supervisors = [],
+  defaultSupervisor = null,
   vehicles,
   onUpdateStatus,
   onUpdateOrder,
@@ -106,6 +177,14 @@ export const WorkOrderKanban: React.FC<WorkOrderKanbanProps> = ({
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<WorkOrder | undefined>(undefined);
   const isDraggingRef = useRef(false);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const filteredOrders = useMemo(() => {
     try {
@@ -219,7 +298,8 @@ export const WorkOrderKanban: React.FC<WorkOrderKanbanProps> = ({
       if (editingOrder) {
         await onUpdateOrder(editingOrder.id, orderData);
       } else {
-        await onCreateOrder(orderData);
+        const createdId = await onCreateOrder(orderData);
+        if (!createdId) return;
       }
       await handleCloseModal();
     } catch (error) {
@@ -336,6 +416,17 @@ export const WorkOrderKanban: React.FC<WorkOrderKanbanProps> = ({
                 {orders.map((order) => {
                   const services = Array.isArray(order.services) ? order.services : [];
                   const parts = Array.isArray(order.parts) ? order.parts : [];
+                  const timeline = buildTimelineTimers(order, now);
+                  const totalCycleSeconds = TIMELINE_STATUSES.reduce((acc, status) => acc + (timeline[status] || 0), 0);
+                  const estimatedSeconds = Math.max(0, (order.estimatedHours || 0) * 3600);
+                  const actualSeconds = getOrderActualSeconds(order, now);
+                  const isOvertime = estimatedSeconds > 0 && actualSeconds > estimatedSeconds;
+                  const execLimit = Math.max(2 * 3600, estimatedSeconds * 1.2);
+                  const waitingAlert = timeline.aguardando > 4 * 3600;
+                  const execAlert = timeline.em_execucao > execLimit;
+                  const pausedAlert = timeline.aguardando_pecas > 6 * 3600;
+                  const totalAlert = estimatedSeconds > 0 && totalCycleSeconds > estimatedSeconds * 2;
+                  const hasAlert = waitingAlert || execAlert || pausedAlert || totalAlert;
                   return (
                   <div
                     key={order.id}
@@ -362,6 +453,11 @@ export const WorkOrderKanban: React.FC<WorkOrderKanbanProps> = ({
                           <span className={`px-2 py-0.5 text-xs font-medium rounded ${TYPE_COLORS[order.type] || 'bg-slate-100 text-slate-600'}`}>
                             {WORK_ORDER_TYPE_LABELS[order.type]}
                           </span>
+                          {hasAlert && (
+                            <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-red-100 text-red-600">
+                              Alerta
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm font-semibold text-slate-900 dark:text-white">
                           {order.vehiclePlate}
@@ -379,6 +475,26 @@ export const WorkOrderKanban: React.FC<WorkOrderKanbanProps> = ({
                     <p className="text-sm text-slate-600 dark:text-slate-300 mb-3 line-clamp-2">
                       {order.description}
                     </p>
+                    {order.workshopUnit && (
+                      <div className="mb-3">
+                        <span className="px-2 py-0.5 text-xs font-medium rounded bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300">
+                          {order.workshopUnit}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className={`flex items-center gap-2 text-xs ${isOvertime ? 'text-red-600' : 'text-emerald-600'} mb-3`}>
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        {isOvertime ? (
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10H9m10 2a8 8 0 11-16 0 8 8 0 0116 0zm-5.5 4a2.5 2.5 0 00-5 0" />
+                        ) : (
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 10h.01M15 10h.01m-6.5 4a2.5 2.5 0 005 0m6.5-4a8 8 0 11-16 0 8 8 0 0116 0z" />
+                        )}
+                      </svg>
+                      <span className="font-semibold">
+                        Realizado { (actualSeconds / 3600).toFixed(1) }h / Est. { (estimatedSeconds / 3600).toFixed(1) }h
+                      </span>
+                    </div>
 
                     {/* Services */}
                     {services.length > 0 && (
@@ -430,8 +546,24 @@ export const WorkOrderKanban: React.FC<WorkOrderKanbanProps> = ({
                         <TimerDisplay 
                           totalSeconds={order.totalSeconds || 0}
                           lastStatusChange={order.lastStatusChange}
-                          isActive={order.isTimerActive || false}
+                          isActive={order.status !== 'finalizada' && order.status !== 'cancelada'}
                         />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 border-t border-slate-100 dark:border-slate-700 pt-3">
+                      <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+                        {TIMELINE_STATUSES.map(status => (
+                          <div key={status} className="flex items-center gap-2">
+                            <span className={`h-1.5 w-1.5 rounded-full ${STATUS_CONFIG[status]?.color.replace('text-', 'bg-') || 'bg-slate-300'}`} />
+                            <span className="font-semibold">{TIMELINE_LABELS[status]}</span>
+                            <span className="ml-auto font-mono">{formatDurationShort(timeline[status] || 0)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                        <span>Total do ciclo</span>
+                        <span className="font-mono">{formatDurationShort(totalCycleSeconds)}</span>
                       </div>
                     </div>
 
@@ -471,16 +603,11 @@ export const WorkOrderKanban: React.FC<WorkOrderKanbanProps> = ({
         onClose={handleCloseModal}
         onSave={handleSaveOrder}
         mechanics={mechanics}
+        supervisors={supervisors}
+        defaultSupervisor={defaultSupervisor}
         vehicles={vehicles}
         initialData={editingOrder}
       />
     </div>
   );
 };
-
-
-
-
-
-
-

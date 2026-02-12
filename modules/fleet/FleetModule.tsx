@@ -36,6 +36,76 @@ const buildVehicleStatus = (): Vehicle['status'] => ({
   licensing: 'REGULAR',
 });
 
+const emptyVehicleForm = {
+  placa: '',
+  renavam: '',
+  chassi: '',
+  classe: '',
+  cor: '',
+  ano_modelo: '',
+  ano_fabricacao: '',
+  cidade: '',
+  estado: '',
+  proprietario: '',
+  cod_centro_custo: '',
+  desc_centro_custo: '',
+  desc_modelo: '',
+  desc_marca: '',
+  desc_combustivel: '',
+  km_atual: '0',
+  km_anterior: '0',
+  dta_ult_manutencao: '',
+  dta_prox_manutencao: '',
+  km_prox_manutencao: '',
+  gestao_multa: 'NAO',
+  setor_veiculo: '',
+  responsavel_veiculo: '',
+};
+
+const toText = (value: unknown) => (value === null || value === undefined ? '' : String(value));
+const toDateInput = (value: unknown) => {
+  const text = toText(value);
+  if (!text) return '';
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text.slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
+};
+
+const mapFleetVehicleToForm = (row: Record<string, unknown>) => ({
+  placa: toText(row.placa).toUpperCase(),
+  renavam: toText(row.renavam),
+  chassi: toText(row.chassi),
+  classe: toText(row.classe),
+  cor: toText(row.cor),
+  ano_modelo: toText(row.ano_modelo),
+  ano_fabricacao: toText(row.ano_fabricacao),
+  cidade: toText(row.cidade),
+  estado: toText(row.estado),
+  proprietario: toText(row.proprietario),
+  cod_centro_custo: toText(row.cod_centro_custo),
+  desc_centro_custo: toText(row.desc_centro_custo),
+  desc_modelo: toText(row.desc_modelo),
+  desc_marca: toText(row.desc_marca),
+  desc_combustivel: toText(row.desc_combustivel),
+  km_atual: toText(row.km_atual ?? '0'),
+  km_anterior: toText(row.km_anterior ?? '0'),
+  dta_ult_manutencao: toDateInput(row.dta_ult_manutencao),
+  dta_prox_manutencao: toDateInput(row.dta_prox_manutencao),
+  km_prox_manutencao: toText(row.km_prox_manutencao),
+  gestao_multa: toText(row.gestao_multa || 'NAO') || 'NAO',
+  setor_veiculo: toText(row.setor_veiculo),
+  responsavel_veiculo: toText(row.responsavel_veiculo),
+});
+
+const seedVehicleFormFromUi = (vehicle?: Vehicle) => {
+  if (!vehicle) return emptyVehicleForm;
+  return {
+    ...emptyVehicleForm,
+    placa: toText(vehicle.plate).toUpperCase(),
+    desc_modelo: toText(vehicle.model),
+  };
+};
+
 const mapFleetVehicleToUi = (row: Record<string, unknown>, index: number): Vehicle => {
   const plate = normalizeVehicleText(row.placa).toUpperCase();
   const brand = normalizeVehicleText(row.desc_marca);
@@ -54,7 +124,11 @@ const mapFleetVehicleToUi = (row: Record<string, unknown>, index: number): Vehic
   };
 };
 
-const FleetModule: React.FC = () => {
+interface FleetModuleProps {
+  onBackToModules?: () => void;
+}
+
+const FleetModule: React.FC<FleetModuleProps> = ({ onBackToModules }) => {
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.PAINEL);
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -63,32 +137,11 @@ const FleetModule: React.FC = () => {
   const [fleetVehicles, setFleetVehicles] = useState<Vehicle[]>([]);
   const [fleetVehiclesLoading, setFleetVehiclesLoading] = useState(false);
   const [fleetVehiclesError, setFleetVehiclesError] = useState<string | null>(null);
+  const [vehicleModalMode, setVehicleModalMode] = useState<'create' | 'view' | 'edit'>('create');
+  const [vehicleModalPlate, setVehicleModalPlate] = useState('');
+  const [vehicleModalLoading, setVehicleModalLoading] = useState(false);
 
-  const [vehicleForm, setVehicleForm] = useState<Record<string, string>>({
-    placa: '',
-    renavam: '',
-    chassi: '',
-    classe: '',
-    cor: '',
-    ano_modelo: '',
-    ano_fabricacao: '',
-    cidade: '',
-    estado: '',
-    proprietario: '',
-    cod_centro_custo: '',
-    desc_centro_custo: '',
-    desc_modelo: '',
-    desc_marca: '',
-    desc_combustivel: '',
-    km_atual: '0',
-    km_anterior: '0',
-    dta_ult_manutencao: '',
-    dta_prox_manutencao: '',
-    km_prox_manutencao: '',
-    gestao_multa: 'NAO',
-    setor_veiculo: '',
-    responsavel_veiculo: '',
-  });
+  const [vehicleForm, setVehicleForm] = useState<Record<string, string>>(emptyVehicleForm);
 
   const [driverForm, setDriverForm] = useState<Record<string, string>>({
     matricula: '',
@@ -148,7 +201,7 @@ const FleetModule: React.FC = () => {
   const getAddButtonConfig = () => {
     switch (currentScreen) {
       case Screen.VEICULOS:
-        return { label: 'Novo Veiculo', icon: 'directions_car', action: () => setActiveModal('veiculo') };
+        return { label: 'Novo Veiculo', icon: 'directions_car', action: () => openVehicleModal('create') };
       case Screen.CONDUTORES:
         return { label: 'Nova Pessoa', icon: 'person_add', action: () => setActiveModal('motorista') };
       case Screen.MULTAS:
@@ -208,6 +261,47 @@ const FleetModule: React.FC = () => {
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
+  const openVehicleModal = async (mode: 'create' | 'view' | 'edit', vehicle?: Vehicle) => {
+    setVehicleModalMode(mode);
+    if (mode === 'create') {
+      setVehicleForm(emptyVehicleForm);
+      setVehicleModalPlate('');
+      setActiveModal('veiculo');
+      return;
+    }
+
+    if (!vehicle?.plate) {
+      showToast('error', 'Placa nao informada para abrir o veiculo.');
+      return;
+    }
+
+    setVehicleForm(seedVehicleFormFromUi(vehicle));
+    setVehicleModalPlate(vehicle.plate.toUpperCase());
+    setVehicleModalLoading(true);
+    setActiveModal('veiculo');
+    try {
+      const { data, error } = await api
+        .from('fleet_vehicles')
+        .eq('placa', vehicle.plate)
+        .eq('source_module', 'gestao_frota');
+
+      if (error) throw new Error(String(error));
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row) {
+        showToast('error', 'Veiculo nao encontrado para abrir.');
+        return;
+      }
+
+      setVehicleForm(mapFleetVehicleToForm(row));
+      setVehicleModalPlate(String(row.placa || vehicle.plate).toUpperCase());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha ao carregar veiculo.';
+      showToast('error', message);
+    } finally {
+      setVehicleModalLoading(false);
+    }
+  };
+
   const persistActiveModal = async () => {
     const now = new Date().toISOString();
 
@@ -220,13 +314,19 @@ const FleetModule: React.FC = () => {
         km_atual: toNumber(vehicleForm.km_atual),
         km_anterior: toNumber(vehicleForm.km_anterior),
         km_prox_manutencao: toNumber(vehicleForm.km_prox_manutencao),
-        created_at: now,
       };
       if (!payload.placa) throw new Error('Informe a placa do veiculo.');
+      if (vehicleModalMode === 'edit') {
+        return api
+          .from('fleet_vehicles')
+          .eq('source_module', 'gestao_frota')
+          .eq('placa', vehicleModalPlate || payload.placa)
+          .update(payload);
+      }
       return api
         .from('fleet_vehicles')
         .eq('source_module', 'gestao_frota')
-        .insert(payload);
+        .insert({ ...payload, created_at: now });
     }
 
     if (activeModal === 'motorista') {
@@ -299,6 +399,10 @@ const FleetModule: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeModal) return;
+    if (activeModal === 'veiculo' && vehicleModalMode === 'view') {
+      setActiveModal(null);
+      return;
+    }
 
     const shouldRefreshVehicles = activeModal === 'veiculo';
     setIsSaving(true);
@@ -324,7 +428,16 @@ const FleetModule: React.FC = () => {
       case Screen.PAINEL:
         return <Dashboard />;
       case Screen.VEICULOS:
-        return <Vehicles vehicles={fleetVehicles} loading={fleetVehiclesLoading} error={fleetVehiclesError} onRetry={loadFleetVehicles} />;
+        return (
+          <Vehicles
+            vehicles={fleetVehicles}
+            loading={fleetVehiclesLoading}
+            error={fleetVehiclesError}
+            onRetry={loadFleetVehicles}
+            onView={(vehicle) => openVehicleModal('view', vehicle)}
+            onEdit={(vehicle) => openVehicleModal('edit', vehicle)}
+          />
+        );
       case Screen.MULTAS:
         return <Fines />;
       case Screen.TACOGRAFO:
@@ -354,6 +467,7 @@ const FleetModule: React.FC = () => {
       onAddClick={btnConfig?.action}
       addLabel={btnConfig?.label}
       addIcon={btnConfig?.icon}
+      onBackToModules={onBackToModules}
     >
       <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-sm text-slate-700 flex items-start gap-3">
         <MaterialIcon name="schema" className="text-blue-600 !text-[18px] mt-0.5" />
@@ -362,8 +476,22 @@ const FleetModule: React.FC = () => {
 
       {renderScreen()}
 
-      <Modal isOpen={activeModal === 'veiculo'} onClose={() => setActiveModal(null)} title="Cadastro de Veiculo (DER: Veiculos)">
+      <Modal
+        isOpen={activeModal === 'veiculo'}
+        onClose={() => setActiveModal(null)}
+        title={vehicleModalMode === 'view' ? 'Detalhes do Veiculo' : vehicleModalMode === 'edit' ? 'Editar Veiculo' : 'Cadastro de Veiculo (DER: Veiculos)'}
+      >
+        {vehicleModalLoading ? (
+          <div className="flex items-center justify-center py-16 text-sm text-slate-500">
+            Carregando veiculo...
+          </div>
+        ) : (
         <form className="space-y-8" onSubmit={handleSave}>
+          {vehicleModalMode === 'view' && (
+            <div className="px-4 py-3 rounded-2xl border border-blue-200 bg-blue-50/70 text-xs font-semibold text-slate-600">
+              Modo visualização. Para alterar dados, clique em Editar.
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Input
               label="Placa (PK) *"
@@ -374,32 +502,93 @@ const FleetModule: React.FC = () => {
               }
               onAction={() => runAiSearch('vehicle', vehicleForm.placa)}
               actionIcon="search"
+              disabled={vehicleModalMode !== 'create'}
+              className={vehicleModalMode !== 'create' ? 'opacity-70 cursor-not-allowed' : ''}
             />
-            <Input label="Renavam" value={vehicleForm.renavam} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'renavam', e.target.value)} />
-            <Input label="Chassi" value={vehicleForm.chassi} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'chassi', e.target.value)} />
+            <Input
+              label="Renavam"
+              value={vehicleForm.renavam}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'renavam', e.target.value)}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+            />
+            <Input
+              label="Chassi"
+              value={vehicleForm.chassi}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'chassi', e.target.value)}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+            />
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <Input label="Marca" value={vehicleForm.desc_marca} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'desc_marca', e.target.value)} />
-            <Input label="Modelo" value={vehicleForm.desc_modelo} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'desc_modelo', e.target.value)} />
-            <Input label="Classe" value={vehicleForm.classe} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'classe', e.target.value)} />
-            <Input label="Cor" value={vehicleForm.cor} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'cor', e.target.value)} />
-            <Input label="Ano Modelo" type="number" value={vehicleForm.ano_modelo} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'ano_modelo', e.target.value)} />
-            <Input label="Ano Fabricacao" type="number" value={vehicleForm.ano_fabricacao} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'ano_fabricacao', e.target.value)} />
-            <Input label="Cidade" value={vehicleForm.cidade} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'cidade', e.target.value)} />
-            <Input label="Estado" value={vehicleForm.estado} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'estado', e.target.value)} />
-            <Input label="Proprietario" value={vehicleForm.proprietario} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'proprietario', e.target.value)} />
-            <Input label="Centro de Custo (FK)" value={vehicleForm.cod_centro_custo} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'cod_centro_custo', e.target.value)} />
-            <Input label="Desc. Centro de Custo" value={vehicleForm.desc_centro_custo} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'desc_centro_custo', e.target.value)} />
-            <Input label="Combustivel" value={vehicleForm.desc_combustivel} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'desc_combustivel', e.target.value)} />
+            {[
+              { label: 'Marca', field: 'desc_marca' },
+              { label: 'Modelo', field: 'desc_modelo' },
+              { label: 'Classe', field: 'classe' },
+              { label: 'Cor', field: 'cor' },
+              { label: 'Ano Modelo', field: 'ano_modelo', type: 'number' },
+              { label: 'Ano Fabricacao', field: 'ano_fabricacao', type: 'number' },
+              { label: 'Cidade', field: 'cidade' },
+              { label: 'Estado', field: 'estado' },
+              { label: 'Proprietario', field: 'proprietario' },
+              { label: 'Centro de Custo (FK)', field: 'cod_centro_custo' },
+              { label: 'Desc. Centro de Custo', field: 'desc_centro_custo' },
+              { label: 'Combustivel', field: 'desc_combustivel' },
+            ].map((item) => (
+              <Input
+                key={item.field}
+                label={item.label}
+                type={item.type || 'text'}
+                value={vehicleForm[item.field]}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, item.field, e.target.value)}
+                disabled={vehicleModalMode === 'view'}
+                className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+              />
+            ))}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <Input label="KM Atual" type="number" value={vehicleForm.km_atual} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'km_atual', e.target.value)} />
-            <Input label="KM Anterior" type="number" value={vehicleForm.km_anterior} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'km_anterior', e.target.value)} />
-            <Input label="Data Ult. Manutencao" type="date" value={vehicleForm.dta_ult_manutencao} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'dta_ult_manutencao', e.target.value)} />
-            <Input label="Data Prox. Manutencao" type="date" value={vehicleForm.dta_prox_manutencao} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'dta_prox_manutencao', e.target.value)} />
-            <Input label="KM Prox. Manutencao" type="number" value={vehicleForm.km_prox_manutencao} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'km_prox_manutencao', e.target.value)} />
+            <Input
+              label="KM Atual"
+              type="number"
+              value={vehicleForm.km_atual}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'km_atual', e.target.value)}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+            />
+            <Input
+              label="KM Anterior"
+              type="number"
+              value={vehicleForm.km_anterior}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'km_anterior', e.target.value)}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+            />
+            <Input
+              label="Data Ult. Manutencao"
+              type="date"
+              value={vehicleForm.dta_ult_manutencao}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'dta_ult_manutencao', e.target.value)}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+            />
+            <Input
+              label="Data Prox. Manutencao"
+              type="date"
+              value={vehicleForm.dta_prox_manutencao}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'dta_prox_manutencao', e.target.value)}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+            />
+            <Input
+              label="KM Prox. Manutencao"
+              type="number"
+              value={vehicleForm.km_prox_manutencao}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'km_prox_manutencao', e.target.value)}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+            />
             <Select
               label="Gestao de Multa"
               value={vehicleForm.gestao_multa}
@@ -408,19 +597,45 @@ const FleetModule: React.FC = () => {
                 { label: 'Sim', value: 'SIM' },
                 { label: 'Nao', value: 'NAO' },
               ]}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
             />
-            <Input label="Setor do Veiculo" value={vehicleForm.setor_veiculo} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'setor_veiculo', e.target.value)} />
-            <Input label="Responsavel do Veiculo" value={vehicleForm.responsavel_veiculo} onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'responsavel_veiculo', e.target.value)} />
+            <Input
+              label="Setor do Veiculo"
+              value={vehicleForm.setor_veiculo}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'setor_veiculo', e.target.value)}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+            />
+            <Input
+              label="Responsavel do Veiculo"
+              value={vehicleForm.responsavel_veiculo}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(setVehicleForm, 'responsavel_veiculo', e.target.value)}
+              disabled={vehicleModalMode === 'view'}
+              className={vehicleModalMode === 'view' ? 'opacity-70 cursor-not-allowed' : ''}
+            />
           </div>
 
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="w-full py-4 bg-primary text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-primary/20 hover:scale-[1.01] transition-all disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            {isSaving ? 'Salvando...' : 'Salvar Veiculo'}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setActiveModal(null)}
+              className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-black uppercase text-xs hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+            >
+              Fechar
+            </button>
+            {vehicleModalMode !== 'view' && (
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="w-full py-4 bg-primary text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-primary/20 hover:scale-[1.01] transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isSaving ? 'Salvando...' : 'Salvar Veiculo'}
+              </button>
+            )}
+          </div>
         </form>
+        )}
       </Modal>
 
       <Modal isOpen={activeModal === 'motorista'} onClose={() => setActiveModal(null)} title="Cadastro de Pessoa e Funcao (DER: Pessoa)">

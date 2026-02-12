@@ -1,7 +1,7 @@
 import { PartRequest, ServiceCategory, ServiceItem, WorkOrder, WorkOrderStatus, WorkOrderType } from '../types';
 
 const WORK_ORDER_STATUSES: WorkOrderStatus[] = ['aguardando', 'em_execucao', 'aguardando_pecas', 'finalizada', 'cancelada'];
-const WORK_ORDER_TYPES: WorkOrderType[] = ['preventiva', 'corretiva', 'urgente', 'revisao', 'garantia'];
+const WORK_ORDER_TYPES: WorkOrderType[] = ['preventiva', 'corretiva', 'urgente', 'revisao', 'garantia', 'tav', 'terceiros'];
 const WORK_ORDER_PRIORITIES = ['baixa', 'normal', 'alta', 'urgente'] as const;
 const SERVICE_CATEGORIES: ServiceCategory[] = ['motor', 'suspensao', 'freios', 'eletrica', 'lubrificacao', 'pneus', 'carroceria', 'outros'];
 const PART_STATUSES: PartRequest['status'][] = ['pendente', 'separacao', 'entregue', 'nao_utilizada'];
@@ -15,6 +15,18 @@ const toStringValue = (value: unknown, fallback = '') => {
 const toNumberValue = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toObject = <T extends object>(value: unknown, fallback: T): T => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as T;
+  if (typeof value !== 'string') return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as T;
+  } catch {
+    // ignore
+  }
+  return fallback;
 };
 
 const toArray = <T>(value: unknown): T[] => (Array.isArray(value) ? value : []);
@@ -31,6 +43,10 @@ const normalizeServiceItem = (raw: any, index: number): ServiceItem => {
     completed: Boolean(raw?.completed),
     mechanicId: toStringValue(raw?.mechanicId ?? raw?.mechanic_id, '') || undefined,
     mechanicName: toStringValue(raw?.mechanicName ?? raw?.mechanic_name, '') || undefined,
+    startedAt: toStringValue(raw?.startedAt ?? raw?.started_at, '') || undefined,
+    actualSeconds: toNumberValue(raw?.actualSeconds ?? raw?.actual_seconds, undefined),
+    isTimerActive: raw?.is_timer_active ?? raw?.isTimerActive ?? undefined,
+    completedAt: toStringValue(raw?.completedAt ?? raw?.completed_at, '') || undefined,
   };
 };
 
@@ -81,6 +97,9 @@ export const normalizeWorkOrders = (
       priority,
       mechanicId: toStringValue(row?.mechanic_id ?? row?.mechanicId, '') || undefined,
       mechanicName: toStringValue(row?.mechanic_name ?? row?.mechanicName, '') || undefined,
+      supervisorId: toStringValue(row?.supervisor_id ?? row?.supervisorId, '') || undefined,
+      supervisorName: toStringValue(row?.supervisor_name ?? row?.supervisorName, '') || undefined,
+      workshopUnit: toStringValue(row?.workshop_unit ?? row?.workshopUnit, '') || undefined,
       description: toStringValue(row?.description, '').trim() || 'Sem descricao',
       services,
       parts,
@@ -100,6 +119,7 @@ export const normalizeWorkOrders = (
       totalSeconds: toNumberValue(row?.total_seconds ?? row?.totalSeconds, undefined),
       lastStatusChange: toStringValue(row?.last_status_change ?? row?.lastStatusChange, '') || undefined,
       isTimerActive: row?.is_timer_active ?? row?.isTimerActive ?? undefined,
+      statusTimers: toObject(row?.status_timers ?? row?.statusTimers, {}),
       lockedBy: toStringValue(row?.locked_by ?? row?.lockedBy, '') || undefined,
       lockedAt: toStringValue(row?.locked_at ?? row?.lockedAt, '') || undefined,
     };

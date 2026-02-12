@@ -50,7 +50,7 @@ const Dashboard: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
           <h3 className="font-bold">Listagem Geral da Frota</h3>
-          <button title="Filtrar Resultados" className="text-xs font-bold text-primary flex items-center gap-1 hover:underline">
+          <button title="Filtrar Resultados" className="text-xs font-bold text-primary flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-all active:scale-95">
             <MaterialIcon name="filter_list" className="!text-[16px]" />
             Filtros Avançados
           </button>
@@ -123,3 +123,4 @@ const Dashboard: React.FC = () => {
 };
 
 export default Dashboard;
+

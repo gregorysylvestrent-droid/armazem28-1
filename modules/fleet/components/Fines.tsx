@@ -132,7 +132,10 @@ const Fines: React.FC = () => {
                   className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
                 />
               </div>
-              <button className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest">Exportar</button>
+              <button className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-all active:scale-95 uppercase tracking-widest flex items-center gap-2">
+                <MaterialIcon name="download" className="!text-[16px]" />
+                Exportar
+              </button>
             </div>
          </div>
          <div className="overflow-x-auto">
@@ -181,7 +184,7 @@ const Fines: React.FC = () => {
                           <Badge variant={fine.status === 'Pago' ? 'success' : 'danger'}>{fine.status}</Badge>
                        </td>
                        <td className="px-8 py-4 text-right">
-                          <button title="Detalhes da Multa" className="p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button title="Detalhes da Multa" className="p-2 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-white dark:hover:bg-slate-700 active:scale-95">
                             <MaterialIcon name="more_vert" className="text-slate-400 hover:text-primary transition-colors cursor-pointer" />
                           </button>
                        </td>

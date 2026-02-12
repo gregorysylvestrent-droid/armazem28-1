@@ -148,27 +148,112 @@ test('veiculos legados sao somente leitura e consomem base central da frota', as
   );
   assert.equal(blockedExternalFleetWrite.status, 403);
 
+  const uniqueSuffix = Date.now().toString(36).toUpperCase();
+  const gestaoPlate = `TS${uniqueSuffix}A`;
+  const oficinaPlate = `TS${uniqueSuffix}B`;
+
   const allowedFleetWrite = await fetch(
     `${server.baseUrl}/fleet_vehicles?source_module=gestao_frota`,
     {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({
-        placa: 'TST-9002',
+        placa: gestaoPlate,
         desc_modelo: 'Modelo Permitido',
       }),
     }
   );
   assert.equal(allowedFleetWrite.status, 200);
 
+  const allowedOficinaWrite = await fetch(
+    `${server.baseUrl}/fleet_vehicles?source_module=oficina`,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        placa: oficinaPlate,
+        desc_modelo: 'Modelo Oficina',
+      }),
+    }
+  );
+  assert.equal(allowedOficinaWrite.status, 200);
+
+  const armazemScopedRead = await fetch(
+    `${server.baseUrl}/fleet_vehicles?source_module=armazem&placa=${encodeURIComponent(gestaoPlate)}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  assert.equal(armazemScopedRead.status, 200);
+  const armazemScopedPayload = await armazemScopedRead.json();
+  assert.equal(armazemScopedPayload.error, null);
+  assert.ok(Array.isArray(armazemScopedPayload.data));
+  assert.equal(armazemScopedPayload.data.length, 1);
+  assert.equal(String(armazemScopedPayload.data[0]?.placa || '').toUpperCase(), gestaoPlate);
+
+  const crossModulePatch = await fetch(
+    `${server.baseUrl}/fleet_vehicles?source_module=oficina&placa=${encodeURIComponent(gestaoPlate)}`,
+    {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ desc_modelo: 'Nao deve atualizar' }),
+    }
+  );
+  assert.equal(crossModulePatch.status, 404);
+
+  const ownModulePatch = await fetch(
+    `${server.baseUrl}/fleet_vehicles?source_module=gestao_frota&placa=${encodeURIComponent(gestaoPlate)}`,
+    {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ desc_modelo: 'Modelo Atualizado' }),
+    }
+  );
+  assert.equal(ownModulePatch.status, 200);
+  const ownModulePatchPayload = await ownModulePatch.json();
+  assert.equal(ownModulePatchPayload.error, null);
+  const patchedRow = Array.isArray(ownModulePatchPayload.data)
+    ? ownModulePatchPayload.data[0]
+    : ownModulePatchPayload.data;
+  assert.equal(String(patchedRow?.source_module || ''), 'gestao_frota');
+
+  const scopedCount = await fetch(
+    `${server.baseUrl}/fleet_vehicles/count?source_module=armazem&placa=${encodeURIComponent(gestaoPlate)}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  assert.equal(scopedCount.status, 200);
+  const scopedCountPayload = await scopedCount.json();
+  assert.equal(scopedCountPayload.error, null);
+  assert.equal(Number(scopedCountPayload?.data?.total || 0), 1);
+
+  const blockedCrossModuleDelete = await fetch(
+    `${server.baseUrl}/fleet_vehicles?source_module=oficina&placa=${encodeURIComponent(gestaoPlate)}`,
+    {
+      method: 'DELETE',
+      headers: authHeaders,
+    }
+  );
+  assert.equal(blockedCrossModuleDelete.status, 404);
+
   const cleanupFleetWrite = await fetch(
-    `${server.baseUrl}/fleet_vehicles?source_module=gestao_frota&placa=TST-9002`,
+    `${server.baseUrl}/fleet_vehicles?source_module=gestao_frota&placa=${encodeURIComponent(gestaoPlate)}`,
     {
       method: 'DELETE',
       headers: authHeaders,
     }
   );
   assert.equal(cleanupFleetWrite.status, 200);
+
+  const cleanupOficinaWrite = await fetch(
+    `${server.baseUrl}/fleet_vehicles?source_module=oficina&placa=${encodeURIComponent(oficinaPlate)}`,
+    {
+      method: 'DELETE',
+      headers: authHeaders,
+    }
+  );
+  assert.equal(cleanupOficinaWrite.status, 200);
 
   const fleetResponse = await fetch(`${server.baseUrl}/fleet_vehicles?limit=1`, {
     headers: { Authorization: `Bearer ${token}` },

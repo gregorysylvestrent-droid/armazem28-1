@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS fleet_vehicles (
   gestao_multa TEXT DEFAULT 'NAO',
   setor_veiculo TEXT,
   responsavel_veiculo TEXT,
+  source_module TEXT NOT NULL DEFAULT 'gestao_frota' CHECK (source_module IN ('gestao_frota', 'oficina')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -110,7 +111,7 @@ CREATE TABLE IF NOT EXISTS fleet_people (
 
 CREATE TABLE IF NOT EXISTS fleet_fines (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  placa VARCHAR(20),
+  placa VARCHAR(20) REFERENCES fleet_vehicles(placa) ON UPDATE CASCADE ON DELETE SET NULL,
   ain TEXT,
   data TIMESTAMPTZ,
   hora TEXT,
@@ -125,7 +126,7 @@ CREATE TABLE IF NOT EXISTS fleet_fines (
 
 CREATE TABLE IF NOT EXISTS fleet_tachograph_checks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  placa VARCHAR(20),
+  placa VARCHAR(20) REFERENCES fleet_vehicles(placa) ON UPDATE CASCADE ON DELETE SET NULL,
   num_certificado TEXT,
   dta_afericao TIMESTAMPTZ,
   dta_vencimento TIMESTAMPTZ,
@@ -147,7 +148,7 @@ CREATE TABLE IF NOT EXISTS fleet_rntrc_records (
 
 CREATE TABLE IF NOT EXISTS fleet_fiscal_obligations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  placa VARCHAR(20),
+  placa VARCHAR(20) REFERENCES fleet_vehicles(placa) ON UPDATE CASCADE ON DELETE SET NULL,
   tipo TEXT,
   exercicio INTEGER,
   vencimento TIMESTAMPTZ,
@@ -293,6 +294,7 @@ CREATE INDEX IF NOT EXISTS idx_vendors_cnpj_digits ON vendors ((regexp_replace(C
 CREATE INDEX IF NOT EXISTS idx_vendors_razao_social_lower ON vendors ((lower(COALESCE(razao_social, name, ''))));
 CREATE INDEX IF NOT EXISTS idx_vendors_razao_social_norm ON vendors ((lower(regexp_replace(btrim(COALESCE(razao_social, name, '')), '\s+', ' ', 'g'))));
 CREATE INDEX IF NOT EXISTS idx_fleet_vehicles_centro_custo ON fleet_vehicles(cod_centro_custo);
+CREATE INDEX IF NOT EXISTS idx_fleet_vehicles_source_module_placa ON fleet_vehicles(source_module, placa);
 CREATE INDEX IF NOT EXISTS idx_fleet_people_centro_custo ON fleet_people(cod_centro_custo);
 CREATE INDEX IF NOT EXISTS idx_fleet_fines_placa_data ON fleet_fines(placa, data DESC);
 CREATE INDEX IF NOT EXISTS idx_fleet_tacho_placa_venc ON fleet_tachograph_checks(placa, dta_vencimento DESC);
@@ -474,6 +476,9 @@ CREATE TABLE IF NOT EXISTS work_orders (
   priority TEXT DEFAULT 'normal',
   mechanic_id TEXT REFERENCES mechanics(id),
   mechanic_name TEXT,
+  supervisor_id TEXT,
+  supervisor_name TEXT,
+  workshop_unit TEXT,
   description TEXT NOT NULL,
   services JSONB NOT NULL DEFAULT '[]'::JSONB,
   parts JSONB NOT NULL DEFAULT '[]'::JSONB,
@@ -481,6 +486,10 @@ CREATE TABLE IF NOT EXISTS work_orders (
   closed_at TIMESTAMPTZ,
   estimated_hours INTEGER DEFAULT 0,
   actual_hours DECIMAL(5, 2),
+  status_timers JSONB NOT NULL DEFAULT '{}'::JSONB,
+  total_seconds INTEGER DEFAULT 0,
+  last_status_change TIMESTAMPTZ,
+  is_timer_active BOOLEAN DEFAULT false,
   cost_center TEXT,
   cost_labor DECIMAL(10, 2) DEFAULT 0,
   cost_parts DECIMAL(10, 2) DEFAULT 0,
@@ -488,8 +497,40 @@ CREATE TABLE IF NOT EXISTS work_orders (
   cost_total DECIMAL(10, 2) DEFAULT 0,
   created_by TEXT,
   warehouse_id VARCHAR(50) REFERENCES warehouses(id),
+  locked_by TEXT,
+  locked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Logs de status das ordens de serviço
+CREATE TABLE IF NOT EXISTS work_order_logs (
+  id TEXT PRIMARY KEY,
+  work_order_id TEXT REFERENCES work_orders(id),
+  previous_status TEXT,
+  new_status TEXT,
+  timestamp TIMESTAMPTZ DEFAULT NOW(),
+  user_id TEXT,
+  duration_seconds INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Atribuições de serviços por mecânico (produtividade)
+CREATE TABLE IF NOT EXISTS work_order_assignments (
+  id TEXT PRIMARY KEY,
+  work_order_id TEXT REFERENCES work_orders(id),
+  service_id TEXT,
+  previous_mechanic_id TEXT,
+  previous_mechanic_name TEXT,
+  new_mechanic_id TEXT,
+  new_mechanic_name TEXT,
+  service_category TEXT,
+  service_description TEXT,
+  timestamp TIMESTAMPTZ DEFAULT NOW(),
+  accumulated_seconds INTEGER DEFAULT 0,
+  created_by TEXT,
+  warehouse_id VARCHAR(50) REFERENCES warehouses(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Planos de Manutenção Preventiva
@@ -682,6 +723,13 @@ CREATE INDEX IF NOT EXISTS idx_work_orders_vehicle ON work_orders(vehicle_plate)
 CREATE INDEX IF NOT EXISTS idx_work_orders_opened_at ON work_orders(opened_at DESC);
 CREATE INDEX IF NOT EXISTS idx_work_orders_services_gin ON work_orders USING GIN (services);
 CREATE INDEX IF NOT EXISTS idx_work_orders_parts_gin ON work_orders USING GIN (parts);
+CREATE INDEX IF NOT EXISTS idx_work_orders_status_timers_gin ON work_orders USING GIN (status_timers);
+
+CREATE INDEX IF NOT EXISTS idx_work_order_logs_order ON work_order_logs(work_order_id);
+CREATE INDEX IF NOT EXISTS idx_work_order_logs_timestamp ON work_order_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_work_order_assignments_order ON work_order_assignments(work_order_id);
+CREATE INDEX IF NOT EXISTS idx_work_order_assignments_mechanic ON work_order_assignments(new_mechanic_id);
+CREATE INDEX IF NOT EXISTS idx_work_order_assignments_timestamp ON work_order_assignments(timestamp DESC);
 
 CREATE INDEX IF NOT EXISTS idx_mechanics_status ON mechanics(status);
 CREATE INDEX IF NOT EXISTS idx_mechanics_current_orders_gin ON mechanics USING GIN (current_work_orders);
@@ -693,6 +741,79 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_maintenance_due_date ON scheduled_maint
 CREATE INDEX IF NOT EXISTS idx_inspection_checklists_vehicle ON inspection_checklists(vehicle_plate);
 CREATE INDEX IF NOT EXISTS idx_inspection_checklists_type ON inspection_checklists(type);
 CREATE INDEX IF NOT EXISTS idx_inspection_checklists_date ON inspection_checklists(date DESC);
+
+-- Triggers de controle de tempo por status da OS
+CREATE OR REPLACE FUNCTION work_order_apply_status_timer()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  elapsed_seconds INTEGER;
+  previous_status TEXT;
+  previous_timers JSONB;
+  previous_value INTEGER;
+  services_payload JSONB;
+  has_mechanic BOOLEAN;
+BEGIN
+  services_payload := CASE
+    WHEN NEW.services IS NULL THEN '[]'::jsonb
+    WHEN jsonb_typeof(NEW.services) = 'array' THEN NEW.services
+    ELSE '[]'::jsonb
+  END;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(services_payload) AS item
+    WHERE COALESCE(NULLIF(item->>'mechanicId', ''), NULLIF(item->>'mechanic_id', '')) IS NOT NULL
+  ) INTO has_mechanic;
+
+  IF TG_OP = 'INSERT' THEN
+    NEW.status := COALESCE(NULLIF(NEW.status, ''), 'aguardando');
+    IF NEW.status = 'aguardando' AND has_mechanic THEN
+      NEW.status := 'em_execucao';
+    END IF;
+    NEW.status_timers := COALESCE(NEW.status_timers, '{}'::JSONB);
+    NEW.last_status_change := COALESCE(NEW.last_status_change, NEW.opened_at, NOW());
+    NEW.is_timer_active := (NEW.status = 'em_execucao');
+    RETURN NEW;
+  END IF;
+
+  NEW.status := COALESCE(NULLIF(NEW.status, ''), OLD.status, 'aguardando');
+  IF NEW.status = 'aguardando' AND has_mechanic THEN
+    NEW.status := 'em_execucao';
+  END IF;
+
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    previous_status := OLD.status;
+    elapsed_seconds := EXTRACT(EPOCH FROM (NOW() - COALESCE(OLD.last_status_change, OLD.opened_at, NOW())))::INT;
+    IF elapsed_seconds < 0 THEN
+      elapsed_seconds := 0;
+    END IF;
+
+    previous_timers := COALESCE(OLD.status_timers, '{}'::JSONB);
+    previous_value := COALESCE((previous_timers ->> previous_status)::INT, 0);
+    NEW.status_timers := jsonb_set(previous_timers, ARRAY[previous_status], to_jsonb(previous_value + elapsed_seconds), true);
+    NEW.total_seconds := COALESCE(OLD.total_seconds, 0) + elapsed_seconds;
+    NEW.last_status_change := NOW();
+    NEW.is_timer_active := (NEW.status = 'em_execucao');
+
+    IF NEW.status = 'finalizada' THEN
+      NEW.closed_at := COALESCE(NEW.closed_at, NOW());
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_work_orders_status_timer ON work_orders;
+CREATE TRIGGER trg_work_orders_status_timer
+BEFORE INSERT OR UPDATE ON work_orders
+FOR EACH ROW
+EXECUTE FUNCTION work_order_apply_status_timer();
+
+DROP TRIGGER IF EXISTS trg_work_orders_status_log ON work_orders;
+DROP FUNCTION IF EXISTS work_order_log_status_change();
 
 -- Índices para tabelas expandidas
 CREATE INDEX IF NOT EXISTS idx_vehicle_details_plate ON vehicle_details(plate);
