@@ -18192,7 +18192,7 @@
     "location": "DOCA-01",
     "batch": "N/A",
     "expiry": "N/A",
-    "quantity": 5,
+    "quantity": 4,
     "status": "disponivel",
     "image_url": "https://images.unsplash.com/photo-1553413077-190dd305871c?w=400&q=80",
     "category": "Geral",
@@ -18308,5 +18308,20 @@
     "min_qty": 10,
     "unit": "UN",
     "sku": "SKU-1770847739770-00EB"
+  },
+  {
+    "sku": "111",
+    "name": "asd",
+    "category": "GERAL",
+    "unit": "UN",
+    "image_url": "https://images.unsplash.com/photo-1553413077-190dd305871c?w=400&q=80",
+    "quantity": 0,
+    "status": "disponivel",
+    "location": "DOCA-01",
+    "warehouse_id": "ARMZ28",
+    "min_qty": 0,
+    "max_qty": 1000,
+    "lead_time": 7,
+    "safety_stock": 5
   }
 ]

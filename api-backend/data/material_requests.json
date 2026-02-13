@@ -1068,5 +1068,29 @@
     "status": "aprovacao",
     "cost_center": "",
     "warehouse_id": "ARMZ28"
+  },
+  {
+    "id": "REQ-7199",
+    "sku": "SKU-001036",
+    "name": "VENTILADOR DE CABINE",
+    "qty": 1,
+    "plate": "ASD",
+    "dept": "asd",
+    "priority": "normal",
+    "status": "entregue",
+    "cost_center": "asd",
+    "warehouse_id": "ARMZ28"
+  },
+  {
+    "id": "REQ-9908",
+    "sku": "SKU-001036",
+    "name": "VENTILADOR DE CABINE",
+    "qty": 1,
+    "plate": "VAL301",
+    "dept": "as",
+    "priority": "normal",
+    "status": "separacao",
+    "cost_center": "CC-TEST",
+    "warehouse_id": "ARMZ28"
   }
 ]
