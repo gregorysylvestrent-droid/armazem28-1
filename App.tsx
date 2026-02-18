@@ -224,6 +224,7 @@ export const App: React.FC = () => {
     placa: normalizeVehiclePlate(vehicle.plate),
     desc_modelo: vehicle.model,
     classe: vehicle.type,
+    source_module: 'gestao_frota',
     cod_centro_custo: vehicle.costCenter || null,
     dta_ult_manutencao: toIsoDateTime(vehicle.lastMaintenance),
     gestao_multa: 'NAO',
@@ -238,7 +239,7 @@ export const App: React.FC = () => {
     type: String(row?.classe ?? row?.type ?? 'PROPRIO'),
     status: normalizeVehicleStatus(row?.status ?? row?.status_operacional ?? 'Disponivel'),
     lastMaintenance: toPtBrDateTime(row?.dta_ult_manutencao ?? row?.last_maintenance, ''),
-    costCenter: String(row?.cod_centro_custo ?? row?.cost_center ?? ''),
+    costCenter: String(row?.cod_centro_custo ?? row?.cost_center ?? row?.centro_custo ?? ''),
   });
 
   const normalizeVehicleInput = (vehicle: Partial<Vehicle>): Vehicle | null => {
@@ -5116,9 +5117,3 @@ export const App: React.FC = () => {
     </div>
   );
 };
-
-
-
-
-
-
